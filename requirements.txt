@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pydantic
+openai
+google-generativeai
+pandas
+numpy
+langchain
+nltk
+python-dotenv
+python-multipart
+langchain_openai
+langchain_google_genai
+PyMuPDF
+Pillow
+easyocr
+-e .
