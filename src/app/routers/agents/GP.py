@@ -4,6 +4,7 @@ import shutil
 import sys
 from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
 from fastapi.params import Form
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import uvicorn
@@ -176,6 +177,10 @@ async def GP_assess_case(
         raise HTTPException(status_code=500, detail=str(e))
 
 app.include_router(router)
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
 
 @app.on_event("shutdown")
 def cleanup_uploads():
