@@ -12,12 +12,12 @@ app = FastAPI(
     description="Parses the pdf or jpg files",
     version="1.0"
     )
-router = APIRouter(prefix="/utils/parse", tags=["File Parser"])
+router = APIRouter(prefix="/utils/parse")
 
-@app.post("/parse_pdf")
+@router.post("/parse_pdf_image")
 async def parse_endpoint(file_paths: List[str]):
     """
-    Endpoint to parse PDF files and extract text.
+    Endpoint to parse PDF files and image files to extract text.
     """
     document_text=[]
     for file_path, ext in file_paths:

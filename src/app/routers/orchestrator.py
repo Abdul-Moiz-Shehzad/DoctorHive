@@ -14,11 +14,11 @@ app = FastAPI(
     description="Handles all the flow",
     version="1.0"
     )
-router = APIRouter(prefix="/orchestrator", tags=["Orchestrator"])
+router = APIRouter(prefix="/orchestrator")
 logger = logging.getLogger(__name__)
 
 
-@app.post("/process")#, response_model=OrchestratorResponse)
+@router.post("/process")#, response_model=OrchestratorResponse)
 async def orchestrate_case(
     message: str = Form(..., description="Patient input message"),
     files: Optional[List[UploadFile]] = None,
@@ -36,7 +36,7 @@ async def orchestrate_case(
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     logger.info(f"Upload folder ensured at {UPLOAD_FOLDER}")
     uploaded_file_paths = []
-    files_content=None
+    files_content="Attached Files Content: \n"
     if files:
         for file in files:
             ext = file.filename.split(".")[-1].lower()
@@ -56,18 +56,17 @@ async def orchestrate_case(
 
     if uploaded_file_paths:
         logger.info(f"Parsing {len(uploaded_file_paths)} uploaded files")
-        files_content = await parse_endpoint(uploaded_file_paths)
+        result = await parse_endpoint(uploaded_file_paths)
+        files_content+=result[0]
     else:
-        files_content = ""
-    return files_content
+        files_content = "None"
     try:
         gp_response = await GP_assess_case(
             message=message,
             files_content=files_content,
             model=model
         )
-
-        if gp_response.keyword == "follow-up-questions-gp":
+        if gp_response.keyword == "follow_up":
             return OrchestratorResponse(
                 stage="follow_up",
                 message=gp_response.response,

@@ -25,7 +25,7 @@ app = FastAPI(
     description="Handles intake, follow-ups, and referral to specialists",
     version="1.0"
 )
-router = APIRouter(prefix="/agents/gp", tags=["GP Agent"])
+router = APIRouter(prefix="/agents/gp")
 
 def get_llm(backend: str = "gemini"):
     if backend == "gpt":
@@ -57,6 +57,7 @@ def parse_gp_output(raw_output: str) -> dict:
         resp_text = response_match.group(1).strip()
         resp_text = re.split(r"\n\s*1\.|\nspecialist:", resp_text, maxsplit=1)[0].strip()
         response = resp_text
+        response=response.replace("\nfollow_up:","")
 
     follow_ups = re.findall(r"^\s*\d+\.\s*(.+)", raw_output, re.MULTILINE)
     if not follow_ups:
@@ -85,22 +86,28 @@ def gp_agent(user_message: str, backend: str, case_state: Optional[Dict[str, Any
     system_prompt = """
 You are a medical General Physician Doctor. 
 STRICT RULES:
+- You are not allowed to answer questions out of medical domain.
+- If user message is not related to medical regardless of the report attached or not then in that case you can not answer to that politely say it and no follow ups and specialist.
 - Always communicate in plain text only. 
 - Do NOT use tables, JSON, bullet symbols other than "1.", "2.", etc.
-- Do NOT provide a diagnosis unless the case is very simple and no follow-up questions are needed.
+- Do NOT provide a diagnosis unless the case is very simple and no follow_up questions are needed.
 - If the case is not that simple and requires Specialized Doctor out of [Neurologist, Cardiologist, Ophthalmologist] then return the specialized Doctor as well just keywords
+- Output should include the keyword, response, follow_up, specialist in the exact format given in examples below.
+
+Allowed keywords: direct, follow_up
+Available Specialized Doctors: Neurologist, Cardiologist, Ophthalmologist
 
 Output formats:
-1. If follow-up questions are required:
-   keyword: follow-up-questions-gp
-   response: <empathetic greeting + context>
+1. If follow_up questions are required:
+   keyword: follow_up
+   response: <empathetic greeting + details>
    follow_up: 
    1. <question one>
    2. <question two>
    ...
    specialist: <sp1>, <sp3>
 
-2. If the case is very simple and no follow-up questions are needed:
+2. If the case is very simple and no follow_up questions are needed:
    keyword: direct
    response: <empathetic short reply>
    follow_up: None
@@ -118,7 +125,6 @@ Do not change these formats under any circumstance.
         raise HTTPException(status_code=500, detail="LLM backend error")
 
     parsed_output = parse_gp_output(raw_response)
-    logger.info(f"Parsed output: {parsed_output}")
 
     return GPResponse(
         keyword=parsed_output.get("keyword"),
@@ -128,7 +134,7 @@ Do not change these formats under any circumstance.
     )
 
 
-@app.post("/api/agents/gp/assess", response_model=GPResponse)
+@router.post("/api/agents/gp/assess", response_model=GPResponse)
 async def GP_assess_case(
     message: str = Form(...,description="Patient message input"),
     files_content: Optional[str] = Form("", description="Optional extra files content"),
@@ -177,23 +183,6 @@ async def GP_assess_case(
         raise HTTPException(status_code=500, detail=str(e))
 
 app.include_router(router)
-
-@app.get("/", include_in_schema=False)
-async def root():
-    return RedirectResponse(url="/docs")
-
-@app.on_event("shutdown")
-def cleanup_uploads():
-    """Delete upload folder when app exits."""
-    try:
-        if "reload" in sys.argv:
-            logger.info("Skipping cleanup during autoreload.")
-            return
-        elif os.path.exists(UPLOAD_FOLDER):
-            shutil.rmtree(UPLOAD_FOLDER)
-            logger.info(f"Upload folder {UPLOAD_FOLDER} deleted on shutdown.")
-    except Exception as e:
-        logger.error(f"Failed to clean upload folder: {e}")
 
 if __name__ == "__main__":
     uvicorn.run("GP:app", host="0.0.0.0", port=8001, reload=True)
