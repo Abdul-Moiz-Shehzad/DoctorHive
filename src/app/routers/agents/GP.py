@@ -1,45 +1,23 @@
-# GP.py
-import os
-import shutil
-import sys
-from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, HTTPException, Depends
 from fastapi.params import Form
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import uvicorn
-from src.app.models import UserInput, GPResponse
-from src.app.config import UPLOAD_FOLDER, GOOGLE_API_KEY, OPENAI_API_KEY
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
+from src.utils.utilities import get_db, get_llm
+from sqlalchemy.orm import Session
+from src.app.models import Case, GPResponse
 import logging
-import time
 import re
-# Remove the time.sleep from gemini of get_llm
-# Deal with case state 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="General Physician Agent",
     description="Handles intake, follow-ups, and referral to specialists",
-    version="1.0"
+    version="2.0"
 )
 router = APIRouter(prefix="/agents/gp")
 
-def get_llm(backend: str = "gemini"):
-    if backend == "gpt":
-        logger.info("GP Agent used GPT")
-        raise ValueError("I wont burn my money just yet")
-        return ChatOpenAI(model="gpt-5-mini", temperature=1, api_key=OPENAI_API_KEY)
-    elif backend == "gemini":
-        logger.info("GP Agent used Gemini")
-        time.sleep(30)
-        return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=1, api_key=GOOGLE_API_KEY)
-    else:
-        raise ValueError("Unsupported backend. Use 'gpt' or 'gemini'.")
-
-def parse_gp_output(raw_output: str) -> dict:
+def _parse_gp_output(raw_output: str) -> dict:
     """
     Parse the LLM's raw plain text into GPResponse fields.
     """
@@ -124,7 +102,7 @@ Do not change these formats under any circumstance.
         logger.error(f"LLM error: {e}")
         raise HTTPException(status_code=500, detail="LLM backend error")
 
-    parsed_output = parse_gp_output(raw_response)
+    parsed_output = _parse_gp_output(raw_response)
 
     return GPResponse(
         keyword=parsed_output.get("keyword"),
@@ -137,8 +115,9 @@ Do not change these formats under any circumstance.
 @router.post("/api/agents/gp/assess", response_model=GPResponse)
 async def GP_assess_case(
     message: str = Form(...,description="Patient message input"),
-    files_content: Optional[str] = Form("", description="Optional extra files content"),
+    case_id: str = Form(...,description="Case ID"),
     model:str = Form(..., description="Backend model: 'gpt' or 'gemini'"),
+    db: Session = Depends(get_db),
 ):
     """
     Assess a patient case. Accepts:
@@ -152,23 +131,10 @@ async def GP_assess_case(
     - follow_up_questions: <follow_up_questions> [Questions or None]
     - specialists_required: <specialists_required> [Specialist or None]
     """
-    # Example:
-    #         {
-    #     "keyword": "follow-up-questions-gp",
-    #     "response": "I understand that you're experiencing episodes where the central part of your vision blacks out, lasting for a few minutes. This sounds concerning, and I want to gather more information to understand what might be happening.\nfollow_up:",
-    #     "follow_up_questions": [
-    #         "How frequently do these episodes occur?",
-    #         "Do you experience any other symptoms before, during, or after these episodes, such as headaches, dizziness, nausea, or visual disturbances like flashing lights or shimmering?",
-    #         "Do you have any family history of eye problems, migraines, or neurological conditions?",
-    #         "Have you had your blood pressure checked recently?",
-    #         "Do you have diabetes or any other medical conditions?",
-    #         "What medications are you currently taking, including over-the-counter medications and supplements?"
-    #     ],
-    #     "specialists_required": [
-    #         "Neurologist",
-    #         "Ophthalmologist"
-    #     ]
-    # }
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case ID not found")
+    files_content = case.files_content
     try:
         if model not in ["gpt", "gemini"]:
             logger.error(f"Invalid model specified: {model}")

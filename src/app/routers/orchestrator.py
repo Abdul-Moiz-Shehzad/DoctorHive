@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import uuid
+from app.routers.structures import initial_round
 from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile, Depends
 from typing import Optional, List
 from sqlalchemy import text
@@ -13,11 +14,12 @@ from src.app.routers.agents.GP import GP_assess_case
 from src.utils.parse.parse_file import parse_endpoint
 from src.app.config import UPLOAD_FOLDER
 from src.database import Base, engine, SessionLocal
+from src.utils.utilities import get_db
 
 app = FastAPI(
     title="Orchestrator",
     description="Handles all the flow",
-    version="1.0"
+    version="2.0"
 )
 router = APIRouter(prefix="/orchestrator")
 logger = logging.getLogger(__name__)
@@ -35,16 +37,8 @@ async def startup_event():
         import sys
         sys.exit(1)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.post("/process", response_model=InitialOrchestratorResponse)
-async def orchestrate_case(
+async def process_patient_message_and_files(
     message: str = Form(..., description="Patient input message"),
     files: Optional[List[UploadFile]] = None,
     model: str = Form(..., description="Backend model: 'gpt' or 'gemini'"),
@@ -55,13 +49,13 @@ async def orchestrate_case(
     Orchestrates the patient case through the GP agent and routes based on the response.
     Maintains state across follow-ups using Postgres.
     """
-
+    message=message.replace("'","")
     logger.info("Starting orchestrator for patient case")
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
     uploaded_file_paths = []
     files_content = "Attached Files Content:\n"
-
+    follow_up_text = ""
     if files:
         for file in files:
             ext = file.filename.split(".")[-1].lower()
@@ -91,7 +85,8 @@ async def orchestrate_case(
             stage="init",
             answered_followups=[],
             pending_questions=[],
-            specialists_required=[]
+            specialists_required=[],
+            files_content=files_content
         )
         db.add(case)
         db.commit()
@@ -103,16 +98,16 @@ async def orchestrate_case(
 
         # Append answered followups as context for GP
         if case.answered_followups:
-            history_text = "\nPrevious Follow-ups:\n"
+            follow_up_text = "\nPrevious Follow-ups:\n"
             for qa in case.answered_followups:
-                history_text += f"Q: {qa['question']}\nA: {qa['answer']}\n"
-            files_content += history_text
+                follow_up_text += f"Q: {qa['question']}\nA: {qa['answer']}\n"
 
     try:
         gp_response = await GP_assess_case(
-            message=message,
-            files_content=files_content,
-            model=model
+            message=message+follow_up_text,
+            case_id=case_id,
+            model=model,
+            db=db
         )
 
         if gp_response.keyword == "follow_up":
@@ -199,12 +194,9 @@ async def answer_followup(
             specialists_required=case.specialists_required
         )
 
-    # --- Safe handling of pending questions ---
     current_question = case.pending_questions[0]
     remaining_questions = case.pending_questions[1:]
-    case.pending_questions = remaining_questions  # ✅ reassign instead of pop
-
-    # --- Safe handling of answered follow-ups ---
+    case.pending_questions = remaining_questions  
     if not case.answered_followups:
         case.answered_followups = []
     case.answered_followups = case.answered_followups + [
@@ -215,7 +207,6 @@ async def answer_followup(
     db.refresh(case)
 
     if case.pending_questions:
-        # More follow-ups remain
         next_question = case.pending_questions[0]
 
         return FollowUpResponse(
@@ -227,9 +218,8 @@ async def answer_followup(
             specialists_required=case.specialists_required
         )
     else:
-        # No more follow-ups → specialist stage or completion
         if case.specialists_required:
-            case.stage = "specialist_review"
+            case.stage = "initial_round"
             next_action_message = "All GP follow-up questions answered. Forwarding to specialists."
         else:
             case.stage = "completed"
@@ -267,6 +257,26 @@ async def get_case_state(case_id: str, db: Session = Depends(get_db)):
         answered_followups=case.answered_followups,
         specialists_required=case.specialists_required
     )
+
+@router.post("/specialist_rounds")
+async def specialist_rounds(
+    case_id: str = Form(...),
+    message: str = Form(...),
+    model: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    message=message.replace("'","")
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    logger.info(f"Case {case_id} specialist rounds")
+    initial_responses=await initial_round(case_id,message,model,db)
+    db.query(Case).filter(Case.case_id == case_id).update(
+        {Case.stage: "first_debate"}, synchronize_session=False
+    )
+    db.commit()
+    return initial_responses
+
 
 
 # -----------------------------

@@ -1,8 +1,9 @@
 
+from datetime import datetime
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from src.database import Base, engine, SessionLocal
-from sqlalchemy import Column, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -55,3 +56,38 @@ class Case(Base):
     answered_followups = Column(JSONB, default=list)
     pending_questions = Column(JSONB, default=list)
     specialists_required = Column(JSONB, default=list)
+    files_content = Column(String)
+
+class Specialized_Agents_Diagnosis_Response(BaseModel):
+    """Response for the initial GP assessment."""
+    confidence: int
+    diagnosis: str
+    explanation: str
+
+
+class NeurologistHistory(Base):
+    __tablename__ = "neurologist_history"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    case_id = Column(String, ForeignKey("cases.case_id"))
+    user_input = Column(String)
+    agent_response = Column(JSON)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+class CardiologistHistory(Base):
+    __tablename__ = "cardiologist_history"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    case_id = Column(String, ForeignKey("cases.case_id"))
+    user_input = Column(String)
+    agent_response = Column(JSON)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+class OphthalmologistHistory(Base):
+    __tablename__ = "ophthalmologist_history"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    case_id = Column(String, ForeignKey("cases.case_id"))
+    user_input = Column(String)
+    agent_response = Column(JSON)
+    timestamp = Column(DateTime, default=datetime.utcnow)
