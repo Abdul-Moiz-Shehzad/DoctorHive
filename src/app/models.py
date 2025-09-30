@@ -59,7 +59,7 @@ class Case(Base):
     files_content = Column(String)
 
 class Specialized_Agents_Diagnosis_Response(BaseModel):
-    """Response for the initial GP assessment."""
+    """Response for the Specialized agents diagnosis."""
     confidence: int
     diagnosis: str
     explanation: str
