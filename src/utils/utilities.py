@@ -39,11 +39,11 @@ def get_db():
 
 def get_llm(backend: str = "gemini"):
     if backend == "gpt":
-        logger.info("GP Agent used GPT")
+        logger.info("Agent used GPT")
         raise ValueError("I wont burn my money just yet")
         return ChatOpenAI(model="gpt-5-mini", temperature=1, api_key=OPENAI_API_KEY)
     elif backend == "gemini":
-        logger.info("GP Agent used Gemini")
+        logger.info("Agent used Gemini")
         time.sleep(30)
         return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=1, api_key=GOOGLE_API_KEY)
     else:

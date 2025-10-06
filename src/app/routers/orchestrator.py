@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 import uuid
-from app.routers.structures import initial_round
+from app.routers.structures import first_debate_round, initial_round
 from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile, Depends
 from typing import Optional, List
 from sqlalchemy import text
@@ -54,7 +54,7 @@ async def process_patient_message_and_files(
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
     uploaded_file_paths = []
-    files_content = "Attached Files Content:\n"
+    files_content = ""
     follow_up_text = ""
     if files:
         for file in files:
@@ -82,6 +82,7 @@ async def process_patient_message_and_files(
         case_id = str(uuid.uuid4())
         case = Case(
             case_id=case_id,
+            user_message=message,
             stage="init",
             answered_followups=[],
             pending_questions=[],
@@ -261,20 +262,20 @@ async def get_case_state(case_id: str, db: Session = Depends(get_db)):
 @router.post("/specialist_rounds")
 async def specialist_rounds(
     case_id: str = Form(...),
-    message: str = Form(...),
     model: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    message=message.replace("'","")
     case = db.query(Case).filter(Case.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
     logger.info(f"Case {case_id} specialist rounds")
+    message=db.query(Case.user_message).filter(Case.case_id == case_id).scalar()
     initial_responses=await initial_round(case_id,message,model,db)
     db.query(Case).filter(Case.case_id == case_id).update(
         {Case.stage: "first_debate"}, synchronize_session=False
     )
     db.commit()
+    first_debate_responses=await first_debate_round(case_id,model,initial_responses["responses"],db)
     return initial_responses
 
 

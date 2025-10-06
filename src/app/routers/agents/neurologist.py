@@ -1,6 +1,6 @@
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.params import Form
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import uvicorn
 from src.app.models import Specialized_Agents_Diagnosis_Response
 from src.utils.utilities import _parse_initial_round_output
@@ -111,6 +111,21 @@ async def run_neurological_diagnosis(
         initial_round_output = initial_round_neurology_agent(input_data, model)
         return initial_round_output
     return {stage:"Not implemented yet"}
+
+
+
+@router.post("/api/agents/neurologist/debate", response_model=Specialized_Agents_Diagnosis_Response)
+async def run_neurological_debate(
+    case_id: str = Form(...,description="Case ID"),
+    history: List[Dict] = Form(...,description="History"),
+    cardiologist_response: str = Form(...,description="Cardiologist response"),
+    ophthalmologist_response: str = Form(...,description="Ophthalmologist response"),
+    neurologist_rag: str = Form(...,description="RAG"),
+    model: str = Form(...,description="Backend model: 'gpt' or 'gemini'"),
+):
+    llm=get_llm(model)
+    
+    return None
 
 app.include_router(router)
 

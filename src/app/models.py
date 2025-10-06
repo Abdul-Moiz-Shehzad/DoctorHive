@@ -52,6 +52,7 @@ class Case(Base):
     __tablename__ = "cases"
 
     case_id = Column(String, primary_key=True, index=True)
+    user_message = Column(String)
     stage = Column(String, default="init")
     answered_followups = Column(JSONB, default=list)
     pending_questions = Column(JSONB, default=list)

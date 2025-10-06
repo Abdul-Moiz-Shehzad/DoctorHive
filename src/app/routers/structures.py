@@ -1,7 +1,8 @@
+import json
 import logging
 from app.routers.agents.cardiologist import run_cardiological_diagnosis
 from app.routers.agents.ophthalmologist import run_ophthalmological_diagnosis
-from fastapi import APIRouter, Form, Depends, HTTPException
+from fastapi import APIRouter, Body, FastAPI, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.app.models import CardiologistHistory, Case, NeurologistHistory, OphthalmologistHistory
 from src.app.routers.agents.neurologist import run_neurological_diagnosis
@@ -10,7 +11,11 @@ from src.utils.utilities import get_db
 
 router = APIRouter(prefix="/structures")
 logger=logging.getLogger(__name__)
-
+app = FastAPI(
+    title="Structure for Specialists",
+    description="Handles all the flow of specialists",
+    version="2.0"
+)
 @router.post("/initial_round")
 async def initial_round(
     case_id: str = Form(...),
@@ -21,16 +26,14 @@ async def initial_round(
     check_case = db.query(Case).filter(Case.case_id == case_id).first()
     if not check_case:
         raise HTTPException(status_code=404, detail="Case not found")
-    followup_history = (
-    db.query(Case.answered_followups).filter(Case.case_id == case_id).scalar())
-    files_content = db.query(Case.answered_followups).filter(Case.case_id == case_id).scalar()
+    followup_history = (db.query(Case.answered_followups).filter(Case.case_id == case_id).scalar())
+    files_content = db.query(Case.files_content).filter(Case.case_id == case_id).scalar()
     files_content = str(files_content) if files_content is not None else ""
     input_data = (
         f"Patient message:\n{message}\n\n"
         f"Attached reports:\n{files_content}"
         f"\n\nFollow-up history:\n{followup_history}"
     )
-
     logger.info(f"Calling neurologist for case {case_id}")
     stage="initial"
     neuro_response = await run_neurological_diagnosis(message,followup_history,files_content, model,stage)
@@ -71,15 +74,89 @@ async def initial_round(
         "responses":{"neurologist":neuro_entry.agent_response,"cardiologist":cardio_entry.agent_response,"ophthalmologist":ophthal_entry.agent_response}
     }
 
+def build_history(case_id: str, agent: str, db):
+    """
+    Builds chat history for a given agent and returns it 
+    in a LangChain-compatible format with timestamps.
+    """
+
+    agent_models = {
+        "neurologist": NeurologistHistory,
+        "cardiologist": CardiologistHistory,
+        "ophthalmologist": OphthalmologistHistory,
+    }
+
+    model = agent_models.get(agent)
+    if not model:
+        raise ValueError(f"Unsupported agent type: {agent}")
+
+    records = (
+        db.query(model.user_input, model.agent_response, model.timestamp)
+        .filter(model.case_id == case_id)
+        .order_by(model.timestamp.asc())
+        .all()
+    )
+
+    history = []
+    for record in records:
+        user_input, agent_response, timestamp = record
+
+        history.append({
+            "role": "user",
+            "content": user_input,
+            "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
+        })
+
+        history.append({
+            "role": "assistant",
+            "content": agent_response,
+            "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
+        })
+
+    return history
+
+
 @router.post("/first_debate_round")
 async def first_debate_round(
     case_id: str = Form(...),
-    message: str = Form(...),
-    files_content: str = Form("None"),
     model: str = Form(...),
+    initial_responses: str | dict = Form(...),
     db: Session = Depends(get_db),
 ):
+    """Specialist agents will debate on the diagnosis of each."""
+    if isinstance(initial_responses, str):
+        try:
+            initial_responses = json.loads(initial_responses)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON in initial_responses")
+    elif not isinstance(initial_responses, dict):
+        raise HTTPException(status_code=400, detail="initial_responses must be a dict or JSON string")
     check_case = db.query(Case).filter(Case.case_id == case_id).first()
     if not check_case:
         raise HTTPException(status_code=404, detail="Case not found")
-    followup_history = (db.query(Case.answered_followups).filter(Case.case_id == case_id).scalar())
+    # follow up history not needed because already stored in database for each agent's chat history.
+    #followup_history = (db.query(Case.answered_followups).filter(Case.case_id == case_id).scalar())
+    neurologist_response = initial_responses["neurologist"]
+    cardiologist_response = initial_responses["cardiologist"]
+    ophthalmologist_response = initial_responses["ophthalmologist"]
+    neurologist_rag = None # TODO: RAG for neurologist
+    cardiologist_rag = None # TODO: RAG for cardiologist
+    ophthalmologist_rag = None # TODO: RAG for ophthalmologist
+
+    # Build chat history for each agent
+    neurologist_history = build_history(case_id,"neurologist",db)
+    cardiologist_history = build_history(case_id,"cardiologist",db)
+    ophthalmologist_history = build_history(case_id,"ophthalmologist",db)
+
+    # Starting debate
+    neurologist_response_after_debate = await run_neurological_debate(case_id,neurologist_history,cardiologist_response,ophthalmologist_response,neurologist_rag,model)
+    cardiologist_response_after_debate = await run_cardiological_debate(case_id,cardiologist_history,neurologist_response,ophthalmologist_response,cardiologist_rag,model)
+    ophthalmologist_response_after_debate = await run_ophthalmological_debate(case_id,ophthalmologist_history,neurologist_response,cardiologist_response,ophthalmologist_rag,model)
+    return {
+        case_id:case_id,
+        "responses":{"neurologist":neurologist_response_after_debate,"cardiologist":cardiologist_response_after_debate,"ophthalmologist":ophthalmologist_response_after_debate}
+    } 
+
+
+
+app.include_router(router)

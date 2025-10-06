@@ -23,17 +23,3 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create Base class
 Base = declarative_base()
-
-def get_db_connection():
-    """Create a database connection"""
-    try:
-        conn = psycopg2.connect(
-            host="localhost",
-            database="postgres",
-            user="postgres",
-            password="6025"
-        )
-        return conn
-    except Exception as e:
-        print(f"Error connecting to database: {e}")
-        raise e 
