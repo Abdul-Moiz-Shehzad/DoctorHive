@@ -10,6 +10,7 @@ nltk
 python-dotenv
 python-multipart
 langchain_openai
+langchain
 langchain_google_genai
 PyMuPDF
 Pillow

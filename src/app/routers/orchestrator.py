@@ -275,8 +275,14 @@ async def specialist_rounds(
         {Case.stage: "first_debate"}, synchronize_session=False
     )
     db.commit()
+    logger.info(f"Case {case_id} First Debate Round")
     first_debate_responses=await first_debate_round(case_id,model,initial_responses["responses"],db)
-    return initial_responses
+    db.query(Case).filter(Case.case_id == case_id).update(
+        {Case.stage: "follow_up_specialist"}, synchronize_session=False
+    )
+    db.commit()
+    logger.info(f"Case {case_id} Follow-up Specialist Rounds")
+    return first_debate_responses
 
 
 
