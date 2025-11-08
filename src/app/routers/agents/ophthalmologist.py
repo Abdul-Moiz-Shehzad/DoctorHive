@@ -133,25 +133,27 @@ async def run_ophthalmological_debate(
 You are a senior Ophthalmologist participating in a multidisciplinary case discussion.
 You previously made an ophthalmological diagnosis for the patient based on their symptoms, history, and ophthalmic reports.
 
-Now you are asked to re-evaluate your diagnosis considering what other specialists have said.
-Be clinical, logical, and realistic — imagine this as a genuine debate among consultants during a hospital case review.
+Now, you are asked to re-evaluate your diagnosis considering what other specialists have said.
+Be clinical, logical, and realistic — imagine this as a genuine discussion among consultants during a hospital case review.
 
 Your objectives:
 1. Critically analyze the reasoning and conclusions of the Neurologist and Cardiologist.
 2. Compare their assessments with your own ophthalmological interpretation.
 3. Decide whether:
    - to stand by your diagnosis,
-   - to partially support or integrate their points, or
-   - to revise your diagnosis entirely if their reasoning is stronger.
-4. Adjust your *confidence level* accordingly — lower it if you accept others reasoning, raise it if your view is reinforced.
-5. Base your reasoning on clinical evidence (reports, exam findings) and not on non-clinical factors.
+   - to partially support or integrate their points only if they directly relate to ophthalmological aspects (e.g., if vascular issues could cause retinal changes), or
+   - to revise your diagnosis only within the ophthalmological domain if their reasoning provides stronger evidence for eye/vision-related changes—do not adopt or pivot to diagnoses outside ophthalmology.
+4. Adjust your *confidence level* accordingly — lower it if you accept others' reasoning that impacts ophthalmology, raise it if your ophthalmological view is reinforced. Do not change confidence based on non-ophthalmological elements alone.
+5. Base your reasoning on clinical evidence, not consensus alone. Stay strictly within ophthalmological expertise; reference other domains only to support or contrast your ophthalmological stance, without converging on their primary diagnoses.
 
-If you still stand by your diagnosis or want to refine it further, you may ask **follow-up questions** to clarify clinically relevant missing details — but **do not** ask questions already covered by the GP (the GP follow-up history will be provided). Ask only if a specific ophthalmic detail is missing or unclear.
+If you still stand by your diagnosis or wish to refine it further, you may ask **follow-up questions** to clarify missing or uncertain details that could help improve your final reasoning.
+However, **avoid asking questions already covered by the GP** (the GP's follow-up history will be provided). Only ask if a clinically relevant detail is missing or unclear.
+**Important: Follow-up questions must be simple, patient-friendly, and phrased as a doctor would ask a patient directly. Focus on symptoms, personal experiences, daily activities, family history, or lifestyle—avoid medical jargon, test requests, or questions assuming the patient knows about diseases, labs, or imaging results. For example, instead of 'Have you had a fundoscopy?', ask 'Have you noticed any changes in your vision, like blurriness or spots?'. Keep questions empathetic and easy to answer without prior medical knowledge.**
 
 Output Format (must strictly follow):
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, ophthalmological diagnosis>
-explanation: <your detailed reasoning — explicitly state if you support, disagree with, or modify your view based on others points>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from an ophthalmological perspective only>
 follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>
 """
 
@@ -175,7 +177,7 @@ Here is what other specialists concluded:
 **Neurologist:** {neurologist_response}
 **Cardiologist:** {cardiologist_response}
 
-Your previous Ophthalmological diagnosis was informed by this context (RAG):
+Your previous ophthalmological diagnosis was informed by this context (RAG):
 {ophthalmologist_rag}
 
 Now, based on the full conversation history (which includes all user data, reports, and your past responses),
@@ -183,14 +185,15 @@ provide your final stance.
 
 Remember:
 - You can stand by your own diagnosis and defend it logically.
-- You can agree with another specialist if their reasoning fits better clinically.
-- Or you can modify your diagnosis if new insight makes more sense.
-- Always reason like a real Ophthalmologist, not an AI summarizer.
+- You can agree with another specialist only if their reasoning directly supports ophthalmological elements (e.g., neurological findings linking to optic nerve issues).
+- Or you can modify your diagnosis only if new insight strengthens ophthalmological aspects—do not expand into neurological or cardiological primaries.
+- Always reason like a real ophthalmologist, not an AI summarizer. Maintain domain boundaries: Focus on eyes, vision, and related structures; do not converge on a unified diagnosis outside ophthalmology.
+- For follow-ups: Keep them simple and patient-oriented, focusing on what the patient can easily describe (e.g., feelings, habits, family stories). Avoid anything that requires medical expertise or test knowledge, as patients aren't expected to know about specific diseases or results.
 
 Output strictly in this format:
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, ophthalmological diagnosis>
-explanation: <your detailed reasoning — explicitly state if you support, disagree with, or modify your view based on others points>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from an ophthalmological perspective only>
 follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>"""
 
     messages.append(HumanMessage(content=debate_prompt))
@@ -198,7 +201,11 @@ follow_ups: <any additional follow-up questions you want to ask, comma-separated
     response = llm.invoke(messages)
     text = response.content.strip()
 
-    confidence, diagnosis, explanation, follow_ups = parse_specialist_response(text)
+    parsed = parse_specialist_response(text)
+    confidence = parsed["confidence"]
+    diagnosis = parsed["diagnosis"]
+    explanation = parsed["explanation"]
+    follow_ups = parsed["follow_ups"]
 
     return (
         Specialized_Agents_Diagnosis_Response(

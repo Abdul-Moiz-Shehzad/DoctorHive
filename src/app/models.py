@@ -73,6 +73,8 @@ class NeurologistHistory(Base):
     case_id = Column(String, ForeignKey("cases.case_id"))
     user_input = Column(String)
     agent_response = Column(JSON)
+    answered_followups = Column(JSONB, default=list)
+    pending_questions = Column(JSONB, default=list)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 class CardiologistHistory(Base):
@@ -82,6 +84,8 @@ class CardiologistHistory(Base):
     case_id = Column(String, ForeignKey("cases.case_id"))
     user_input = Column(String)
     agent_response = Column(JSON)
+    answered_followups = Column(JSONB, default=list)
+    pending_questions = Column(JSONB, default=list)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 class OphthalmologistHistory(Base):
@@ -91,4 +95,6 @@ class OphthalmologistHistory(Base):
     case_id = Column(String, ForeignKey("cases.case_id"))
     user_input = Column(String)
     agent_response = Column(JSON)
+    answered_followups = Column(JSONB, default=list)
+    pending_questions = Column(JSONB, default=list)
     timestamp = Column(DateTime, default=datetime.utcnow)

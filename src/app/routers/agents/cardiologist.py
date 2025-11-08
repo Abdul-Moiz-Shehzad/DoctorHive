@@ -46,22 +46,12 @@ confidence: 0
 diagnosis: None  
 explanation: Not within cardiology scope.  
 
-User: I have severe chest pain radiating to my left arm, with sweating and nausea.  
-confidence: 90  
-diagnosis: Acute myocardial infarction  
-explanation: Sudden, severe chest pain radiating to the arm with autonomic symptoms is a classic presentation of myocardial infarction.  
-
 User: My ankles are swollen, and I get short of breath when lying down at night.  
 confidence: 75  
 diagnosis: Congestive heart failure  
 explanation: Peripheral edema and orthopnea are strongly suggestive of fluid overload in heart failure.  
 
-User: Sometimes I feel a fluttering in my chest, especially after coffee or exercise.  
-confidence: 55  
-diagnosis: Atrial fibrillation or other arrhythmia  
-explanation: Palpitations may indicate atrial fibrillation or other arrhythmias, but the description is nonspecific without ECG confirmation.  
-
-User: I occasionally feel tired and dizzy, but I don't have chest pain or palpitations.  
+User: My occasionally feel tired and dizzy, but I don't have chest pain or palpitations.  
 confidence: 20  
 diagnosis: None  
 explanation: Fatigue and dizziness are nonspecific and may not indicate a cardiovascular disorder; other systemic causes are more likely.  
@@ -117,7 +107,7 @@ async def run_cardiological_diagnosis(
 async def run_cardiological_debate(
     case_id: str = Form(..., description="Case ID"),
     history: List[Dict] = Form(..., description="History"),
-    neurologist_reponse: str = Form(..., description="Neurologist response"),
+    neurologist_response: str = Form(..., description="Neurologist response"),
     ophthalmologist_response: str = Form(..., description="Ophthalmologist response"),
     cardiologist_rag: str = Form(..., description="RAG"),
     model: str = Form(..., description="Backend model: 'gpt' or 'gemini'"),
@@ -129,25 +119,26 @@ You are a senior Cardiologist participating in a multidisciplinary case discussi
 You previously made a cardiological diagnosis for the patient based on their symptoms, history, and diagnostic reports.
 
 Now, you are asked to re-evaluate your diagnosis considering what other specialists have said.
-Be clinical, logical, and realistic — imagine this as a genuine debate between consultants in a hospital board meeting.
+Be clinical, logical, and realistic — imagine this as a genuine discussion among consultants during a hospital case review.
 
 Your objectives:
 1. Critically analyze the reasoning and conclusions of the Neurologist and Ophthalmologist.
 2. Compare their assessments with your own cardiological interpretation.
 3. Decide whether:
    - to stand by your diagnosis,
-   - to partially support or integrate their points, or
-   - to revise your diagnosis entirely if their reasoning is stronger.
-4. Adjust your *confidence level* accordingly — lower it if you accept others reasoning, raise it if your stance is reinforced.
-5. Focus on cardiovascular findings but acknowledge cross-specialty correlations (e.g., neurological or ophthalmic links).
+   - to partially support or integrate their points only if they directly relate to cardiological aspects (e.g., if neurological issues could be caused by cardiac emboli), or
+   - to revise your diagnosis only within the cardiological domain if their reasoning provides stronger evidence for heart/vascular-related changes—do not adopt or pivot to diagnoses outside cardiology.
+4. Adjust your *confidence level* accordingly — lower it if you accept others' reasoning that impacts cardiology, raise it if your cardiological view is reinforced. Do not change confidence based on non-cardiological elements alone.
+5. Base your reasoning on clinical evidence, not consensus alone. Stay strictly within cardiological expertise; reference other domains only to support or contrast your cardiological stance, without converging on their primary diagnoses.
 
-If you still stand by your diagnosis or wish to refine it further, you may ask **follow-up questions** to clarify missing or uncertain details that could improve your final assessment.
+If you still stand by your diagnosis or wish to refine it further, you may ask **follow-up questions** to clarify missing or uncertain details that could help improve your final reasoning.
 However, **avoid asking questions already covered by the GP** (the GP's follow-up history will be provided). Only ask if a clinically relevant detail is missing or unclear.
+**Important: Follow-up questions must be simple, patient-friendly, and phrased as a doctor would ask a patient directly. Focus on symptoms, personal experiences, daily activities, family history, or lifestyle—avoid medical jargon, test requests, or questions assuming the patient knows about diseases, labs, or imaging results. For example, instead of 'Have you had an ECG?', ask 'Have you noticed any irregular heartbeats or fluttering in your chest?'. Keep questions empathetic and easy to answer without prior medical knowledge.**
 
 Output Format (must strictly follow):
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, cardiological diagnosis>
-explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others points, and justify your stance>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a cardiological perspective only>
 follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>
 """
 
@@ -168,10 +159,10 @@ follow_ups: <any additional follow-up questions you want to ask, comma-separated
 
     debate_prompt = f"""
 Here is what other specialists concluded:
-**Neurologist:** {neurologist_reponse}
+**Neurologist:** {neurologist_response}
 **Ophthalmologist:** {ophthalmologist_response}
 
-Your previous Cardiological diagnosis was informed by this context (RAG):
+Your previous cardiological diagnosis was informed by this context (RAG):
 {cardiologist_rag}
 
 Now, based on the full conversation history (which includes all user data, reports, and your past responses),
@@ -179,21 +170,26 @@ provide your final stance.
 
 Remember:
 - You can stand by your own diagnosis and defend it logically.
-- You can agree with another specialist if their reasoning fits better clinically.
-- Or you can modify your diagnosis if new insight makes more sense.
-- Always reason like a real cardiologist, not an AI summarizer.
+- You can agree with another specialist only if their reasoning directly supports cardiological elements (e.g., ocular findings linking to vascular issues).
+- Or you can modify your diagnosis only if new insight strengthens cardiological aspects—do not expand into neurological or ophthalmic primaries.
+- Always reason like a real cardiologist, not an AI summarizer. Maintain domain boundaries: Focus on heart, vascular system, and related conditions; do not converge on a unified diagnosis outside cardiology.
+- For follow-ups: Keep them simple and patient-oriented, focusing on what the patient can easily describe (e.g., feelings, habits, family stories). Avoid anything that requires medical expertise or test knowledge, as patients aren't expected to know about specific diseases or results.
 
 Output strictly in this format:
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, cardiological diagnosis>
-explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others points, and justify your stance>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a cardiological perspective only>
 follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>"""
 
     messages.append(HumanMessage(content=debate_prompt))
     response = llm.invoke(messages)
     text = response.content.strip()
 
-    confidence, diagnosis, explanation, follow_ups = parse_specialist_response(text)
+    parsed = parse_specialist_response(text)
+    confidence = parsed["confidence"]
+    diagnosis = parsed["diagnosis"]
+    explanation = parsed["explanation"]
+    follow_ups = parsed["follow_ups"]
 
     return (
         Specialized_Agents_Diagnosis_Response(

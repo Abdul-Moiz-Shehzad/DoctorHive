@@ -124,6 +124,7 @@ async def run_neurological_debate(
     neurologist_rag: str = Form(..., description="RAG"),
     model: str = Form(..., description="Backend model: 'gpt' or 'gemini'"),
 ):
+    logging.info(f"history: {history}")
     llm = get_llm(model)
 
     system_prompt = """
@@ -138,18 +139,19 @@ Your objectives:
 2. Compare their assessments with your own neurological interpretation.
 3. Decide whether:
    - to stand by your diagnosis,
-   - to partially support or integrate their points, or
-   - to revise your diagnosis entirely if their reasoning is stronger.
-4. Adjust your *confidence level* accordingly — lower it if you accept others' reasoning, raise it if your view is reinforced.
-5. Base your reasoning on clinical evidence, not consensus alone.
+   - to partially support or integrate their points only if they directly relate to neurological aspects (e.g., if cardiac issues could cause embolic strokes), or
+   - to revise your diagnosis only within the neurological domain if their reasoning provides stronger evidence for brain/nerve-related changes—do not adopt or pivot to diagnoses outside neurology.
+4. Adjust your *confidence level* accordingly — lower it if you accept others' reasoning that impacts neurology, raise it if your neurological view is reinforced. Do not change confidence based on non-neurological elements alone.
+5. Base your reasoning on clinical evidence, not consensus alone. Stay strictly within neurological expertise; reference other domains only to support or contrast your neurological stance, without converging on their primary diagnoses.
 
 If you still stand by your diagnosis or wish to refine it further, you may ask **follow-up questions** to clarify missing or uncertain details that could help improve your final reasoning.
 However, **avoid asking questions already covered by the GP** (the GP's follow-up history will be provided). Only ask if a clinically relevant detail is missing or unclear.
+**Important: Follow-up questions must be simple, patient-friendly, and phrased as a doctor would ask a patient directly. Focus on symptoms, personal experiences, daily activities, family history, or lifestyle—avoid medical jargon, test requests, or questions assuming the patient knows about diseases, labs, or imaging results. For example, instead of 'What is your lipid panel?', ask 'Have you noticed any changes in your energy levels or diet lately?'. Keep questions empathetic and easy to answer without prior medical knowledge.**
 
 Output Format (must strictly follow):
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, neurological diagnosis>
-explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a neurological perspective only>
 follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>
 """
     messages = [SystemMessage(content=system_prompt)]
@@ -180,14 +182,15 @@ provide your final stance.
 
 Remember:
 - You can stand by your own diagnosis and defend it logically.
-- You can agree with another specialist if their reasoning fits better clinically.
-- Or you can modify your diagnosis if new insight makes more sense.
-- Always reason like a real neurologist, not an AI summarizer.
+- You can agree with another specialist only if their reasoning directly supports neurological elements (e.g., ocular findings linking to brain ischemia).
+- Or you can modify your diagnosis only if new insight strengthens neurological aspects—do not expand into cardiac or ophthalmic primaries.
+- Always reason like a real neurologist, not an AI summarizer. Maintain domain boundaries: Focus on brain, nerves, and related systems; do not converge on a unified diagnosis outside neurology.
+- For follow-ups: Keep them simple and patient-oriented, focusing on what the patient can easily describe (e.g., feelings, habits, family stories). Avoid anything that requires medical expertise or test knowledge, as patients aren't expected to know about specific diseases or results.
 
 Output strictly in this format:
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, neurological diagnosis>
-explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a neurological perspective only>
 follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>"""
 
     messages.append(HumanMessage(content=debate_prompt))
@@ -195,8 +198,12 @@ follow_ups: <any additional follow-up questions you want to ask, comma-separated
     response = llm.invoke(messages)
     text = response.content.strip()
 
-    confidence, diagnosis, explanation, follow_ups = parse_specialist_response(text)
-
+    parsed = parse_specialist_response(text)
+    confidence = parsed["confidence"]
+    diagnosis = parsed["diagnosis"]
+    explanation = parsed["explanation"]
+    follow_ups = parsed["follow_ups"]
+    logging.info(f"Confidence: {confidence}, Diagnosis: {diagnosis}, Explanation: {explanation}, Follow-ups: {follow_ups}")
     return (
         Specialized_Agents_Diagnosis_Response(
             confidence=confidence,

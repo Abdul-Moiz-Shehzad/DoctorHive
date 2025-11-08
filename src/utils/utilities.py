@@ -28,20 +28,42 @@ def parse_specialist_response(text: str):
             elif line.lower().startswith("follow_ups:"):
                 followup_text = line.split(":", 1)[1].strip()
                 if followup_text.lower() != "none":
-                    follow_ups = [q.strip() for q in re.split(r",|;", followup_text) if q.strip()]
+                    # Split on ? followed by optional whitespace
+                    parts = re.split(r'\?\s*', followup_text)
+                    follow_ups = [ (p.strip() + '?') for p in parts if p.strip() ]
                 else:
                     follow_ups = []
     except Exception as e:
         explanation = f"Parsing error: {e}\nRaw output:\n{text}"
 
     return {
-        "confidence": confidence,
+        "confidence": int(confidence),
         "diagnosis": diagnosis,
         "explanation": explanation,
         "follow_ups": follow_ups
     }
 
-
+def parse_follow_ups(text: str):
+    """
+    Parses only the follow_ups from the model output text.
+    """
+    follow_ups = []
+    try:
+        lines = text.strip().split("\n")
+        for line in lines:
+            if line.lower().startswith("follow_ups:"):
+                followup_text = line.split(":", 1)[1].strip()
+                if followup_text.lower() != "none":
+                    # Split on ? followed by optional whitespace
+                    parts = re.split(r'\?\s*', followup_text)
+                    follow_ups = [ (p.strip() + '?') for p in parts if p.strip() ]
+                else:
+                    follow_ups = []
+                break  # Stop after finding the follow_ups line
+    except Exception as e:
+        logger.error(f"Parsing error: {e}\nRaw output:\n{text}")
+        follow_ups = []  # Default to empty on error
+    return follow_ups
 def _parse_initial_round_output(raw_output: str) -> dict:
     """Parse the LLM's raw plain text into SpecialistResponse Diagnosis fields."""
     confidence = None

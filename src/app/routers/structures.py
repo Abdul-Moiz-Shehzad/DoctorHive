@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from src.app.models import CardiologistHistory, Case, NeurologistHistory, OphthalmologistHistory
 from src.app.routers.agents.neurologist import run_neurological_debate, run_neurological_diagnosis
 from datetime import datetime
-from src.utils.utilities import get_db
+from src.utils.utilities import get_db, get_llm, parse_follow_ups, parse_specialist_response
 
 router = APIRouter(prefix="/structures")
 logger=logging.getLogger(__name__)
@@ -44,6 +44,8 @@ async def initial_round(
         case_id=case_id,
         user_input=input_data,
         agent_response=neuro_response,
+        answered_followups=[],
+        pending_questions=[],
         timestamp=datetime.utcnow(),
     )
     db.add(neuro_entry)
@@ -54,6 +56,8 @@ async def initial_round(
         case_id=case_id,
         user_input=input_data,
         agent_response=cardio_response,
+        answered_followups=[],
+        pending_questions=[],
         timestamp=datetime.utcnow(),
     )
     db.add(cardio_entry)
@@ -64,6 +68,8 @@ async def initial_round(
         case_id=case_id,
         user_input=input_data,
         agent_response=ophthal_response,
+        answered_followups=[],
+        pending_questions=[],
         timestamp=datetime.utcnow(),
     )
     db.add(ophthal_entry)
@@ -125,6 +131,28 @@ def _add_follow_ups_for_db(neurologist_response_after_debate,cardiologist_respon
     ophthalmologist_response_after_debate["follow_ups"]=ophthalmologist_follow_ups
     return neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate
 
+def _common_followups(neurologist_follow_ups, cardiologist_follow_ups, ophthalmologist_follow_ups, model, gp_followups=None):
+    """Returns unique combined follow-up questions from specialists, excluding duplicates and (optionally) those similar to GP questions."""
+    llm = get_llm(model)
+    system_prompt = """Your task is to combine the follow-up questions from different specialists into a unique list, removing any duplicates or very similar questions.
+    
+    Just give me the unique follow-up questions comma-separated without any additional text.
+    Output Format:
+    follow_ups: <question1, question2, ...>
+    If none, follow_ups: None
+    """
+    all_specialist = f"Neurologist: {neurologist_follow_ups}\nCardiologist: {cardiologist_follow_ups}\nOphthalmologist: {ophthalmologist_follow_ups}"
+    
+    prompt = f"{system_prompt}\n\n{all_specialist}"
+    try:
+        raw_response = llm.invoke(prompt).content.strip()
+        logger.info(f"LLM Raw response: {raw_response}")
+    except Exception as e:
+        logger.error(f"LLM error: {e}")
+        raise HTTPException(status_code=500, detail="LLM backend error")
+    follow_ups = parse_follow_ups(raw_response)
+    return follow_ups
+
 @router.post("/first_debate_round")
 async def first_debate_round(
     case_id: str = Form(...),
@@ -163,10 +191,13 @@ async def first_debate_round(
     ophthalmologist_response_after_debate, ophthalmologist_debate_prompt, ophthalmologist_follow_ups = await run_ophthalmological_debate(case_id,ophthalmologist_history,neurologist_response,cardiologist_response,ophthalmologist_rag,model)
     
     neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate = _add_follow_ups_for_db(neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate,neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups)
+    common_follow_ups=_common_followups(neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups,model)
     neuro_entry = NeurologistHistory(
         case_id=case_id,
         user_input=neurologist_debate_prompt,
         agent_response=neurologist_response_after_debate,
+        answered_followups=[],
+        pending_questions=common_follow_ups,
         timestamp=datetime.utcnow(),
     )
     db.add(neuro_entry)
@@ -177,6 +208,8 @@ async def first_debate_round(
         case_id=case_id,
         user_input=cardiologist_debate_prompt,
         agent_response=cardiologist_response_after_debate,
+        answered_followups=[],
+        pending_questions=common_follow_ups,
         timestamp=datetime.utcnow(),
     )
     db.add(cardio_entry)
@@ -187,6 +220,8 @@ async def first_debate_round(
         case_id=case_id,
         user_input=ophthalmologist_debate_prompt,
         agent_response=ophthalmologist_response_after_debate,
+        answered_followups=[],
+        pending_questions=common_follow_ups,
         timestamp=datetime.utcnow(),
     )
     db.add(ophthal_entry)
@@ -196,7 +231,8 @@ async def first_debate_round(
     return {
         case_id:case_id,
         "responses":{"neurologist":neurologist_response_after_debate,"cardiologist":cardiologist_response_after_debate,"ophthalmologist":ophthalmologist_response_after_debate},
-        "follow_ups":{"neurologist":neurologist_follow_ups,"cardiologist":cardiologist_follow_ups,"ophthalmologist":ophthalmologist_follow_ups}
+        "follow_ups":{"neurologist":neurologist_follow_ups,"cardiologist":cardiologist_follow_ups,"ophthalmologist":ophthalmologist_follow_ups},
+        "follow_ups_common":common_follow_ups
     } 
 
 
