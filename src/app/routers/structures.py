@@ -1,7 +1,7 @@
 import json
 import logging
-from app.routers.agents.cardiologist import run_cardiological_debate, run_cardiological_diagnosis
-from app.routers.agents.ophthalmologist import run_ophthalmological_debate, run_ophthalmological_diagnosis
+from src.app.routers.agents.cardiologist import run_cardiological_debate, run_cardiological_diagnosis
+from src.app.routers.agents.ophthalmologist import run_ophthalmological_debate, run_ophthalmological_diagnosis
 from fastapi import APIRouter, Body, FastAPI, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.app.models import CardiologistHistory, Case, NeurologistHistory, OphthalmologistHistory
@@ -29,6 +29,9 @@ async def initial_round(
     followup_history = (db.query(Case.answered_followups).filter(Case.case_id == case_id).scalar())
     files_content = db.query(Case.files_content).filter(Case.case_id == case_id).scalar()
     files_content = str(files_content) if files_content is not None else ""
+    specialists_required = db.query(Case.specialists_required).filter(Case.case_id == case_id).scalar()
+    if specialists_required is None:
+        return None
     input_data = (
         f"Patient message:\n{message}\n\n"
         f"Attached reports:\n{files_content}"
@@ -36,45 +39,45 @@ async def initial_round(
     )
     logger.info(f"Calling neurologist for case {case_id}")
     stage="initial"
-    neuro_response = await run_neurological_diagnosis(message,followup_history,files_content, model,stage)
-    cardio_response = await run_cardiological_diagnosis(message,followup_history,files_content, model,stage)
-    ophthal_response = await run_ophthalmological_diagnosis(message,followup_history,files_content, model,stage)
-
-    neuro_entry = NeurologistHistory(
+    if "Neurologist" in specialists_required:
+        neuro_response = await run_neurological_diagnosis(message,followup_history,files_content, model,stage)
+        neuro_entry = NeurologistHistory(
         case_id=case_id,
         user_input=input_data,
         agent_response=neuro_response,
         answered_followups=[],
         pending_questions=[],
         timestamp=datetime.utcnow(),
-    )
-    db.add(neuro_entry)
-    db.commit()
-    db.refresh(neuro_entry)
-
-    cardio_entry = CardiologistHistory(
-        case_id=case_id,
-        user_input=input_data,
-        agent_response=cardio_response,
-        answered_followups=[],
-        pending_questions=[],
-        timestamp=datetime.utcnow(),
-    )
-    db.add(cardio_entry)
-    db.commit()
-    db.refresh(cardio_entry)
-
-    ophthal_entry = OphthalmologistHistory(
-        case_id=case_id,
-        user_input=input_data,
-        agent_response=ophthal_response,
-        answered_followups=[],
-        pending_questions=[],
-        timestamp=datetime.utcnow(),
-    )
-    db.add(ophthal_entry)
-    db.commit()
-    db.refresh(ophthal_entry)
+        )
+        db.add(neuro_entry)
+        db.commit()
+        db.refresh(neuro_entry)
+    if "Cardiologist" in specialists_required:
+        cardio_response = await run_cardiological_diagnosis(message,followup_history,files_content, model,stage)
+        cardio_entry = CardiologistHistory(
+            case_id=case_id,
+            user_input=input_data,
+            agent_response=cardio_response,
+            answered_followups=[],
+            pending_questions=[],
+            timestamp=datetime.utcnow(),
+        )
+        db.add(cardio_entry)
+        db.commit()
+        db.refresh(cardio_entry)
+    if "Ophthalmologist" in specialists_required:
+        ophthal_response = await run_ophthalmological_diagnosis(message,followup_history,files_content, model,stage)
+        ophthal_entry = OphthalmologistHistory(
+            case_id=case_id,
+            user_input=input_data,
+            agent_response=ophthal_response,
+            answered_followups=[],
+            pending_questions=[],
+            timestamp=datetime.utcnow(),
+        )
+        db.add(ophthal_entry)
+        db.commit()
+        db.refresh(ophthal_entry)
     return {
         "case_id": case_id,
         "responses":{"neurologist":neuro_entry.agent_response,"cardiologist":cardio_entry.agent_response,"ophthalmologist":ophthal_entry.agent_response}
@@ -173,60 +176,82 @@ async def first_debate_round(
         raise HTTPException(status_code=404, detail="Case not found")
     # follow up history not needed because already stored in database for each agent's chat history.
     #followup_history = (db.query(Case.answered_followups).filter(Case.case_id == case_id).scalar())
-    neurologist_response = initial_responses["neurologist"]
-    cardiologist_response = initial_responses["cardiologist"]
-    ophthalmologist_response = initial_responses["ophthalmologist"]
-    neurologist_rag = None # TODO: RAG for neurologist
-    cardiologist_rag = None # TODO: RAG for cardiologist
-    ophthalmologist_rag = None # TODO: RAG for ophthalmologist
+    specialists_required = db.query(Case.specialists_required).filter(Case.case_id == case_id).scalar()
+    neurologist_response = "Neurologist was not involved in this case."
+    cardiologist_response = "Cardiologist was not involved in this case."
+    ophthalmologist_response = "Ophthalmologist was not involved in this case."
+    neurologist_rag = ""
+    cardiologist_rag = ""
+    ophthalmologist_rag = ""
+    neurologist_history = ""
+    cardiologist_history = ""
+    ophthalmologist_history = ""
 
-    # Build chat history for each agent
-    neurologist_history = _build_history(case_id,"neurologist",db)
-    cardiologist_history = _build_history(case_id,"cardiologist",db)
-    ophthalmologist_history = _build_history(case_id,"ophthalmologist",db)
+    if specialists_required is None:
+        return None
+    if "Neurologist" in specialists_required:
+        neurologist_response = initial_responses["neurologist"]
+        neurologist_rag = None # TODO: RAG for neurologist
+        neurologist_history = _build_history(case_id,"neurologist",db)
+    if "Cardiologist" in specialists_required:
+        cardiologist_response = initial_responses["cardiologist"]
+        cardiologist_rag = None # TODO: RAG for cardiologist
+        cardiologist_history = _build_history(case_id,"cardiologist",db)
+    if "Ophthalmologist" in specialists_required:
+        ophthalmologist_response = initial_responses["ophthalmologist"]
+        ophthalmologist_rag = None # TODO: RAG for ophthalmologist
+        ophthalmologist_history = _build_history(case_id,"ophthalmologist",db)
 
     # Starting debate
-    neurologist_response_after_debate, neurologist_debate_prompt, neurologist_follow_ups = await run_neurological_debate(case_id,neurologist_history,cardiologist_response,ophthalmologist_response,neurologist_rag,model)
-    cardiologist_response_after_debate, cardiologist_debate_prompt, cardiologist_follow_ups = await run_cardiological_debate(case_id,cardiologist_history,neurologist_response,ophthalmologist_response,cardiologist_rag,model)
-    ophthalmologist_response_after_debate, ophthalmologist_debate_prompt, ophthalmologist_follow_ups = await run_ophthalmological_debate(case_id,ophthalmologist_history,neurologist_response,cardiologist_response,ophthalmologist_rag,model)
+
+    if "Neurologist" in specialists_required:
+        neurologist_response_after_debate, neurologist_debate_prompt, neurologist_follow_ups = await run_neurological_debate(case_id,neurologist_history,cardiologist_response,ophthalmologist_response,neurologist_rag,model)
     
-    neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate = _add_follow_ups_for_db(neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate,neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups)
-    common_follow_ups=_common_followups(neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups,model)
-    neuro_entry = NeurologistHistory(
-        case_id=case_id,
-        user_input=neurologist_debate_prompt,
-        agent_response=neurologist_response_after_debate,
-        answered_followups=[],
-        pending_questions=common_follow_ups,
-        timestamp=datetime.utcnow(),
-    )
-    db.add(neuro_entry)
-    db.commit()
-    db.refresh(neuro_entry)
+    if "Cardiologist" in specialists_required:
+        cardiologist_response_after_debate, cardiologist_debate_prompt, cardiologist_follow_ups = await run_cardiological_debate(case_id,cardiologist_history,neurologist_response,ophthalmologist_response,cardiologist_rag,model)
+    
+    if "Ophthalmologist" in specialists_required:
+        ophthalmologist_response_after_debate, ophthalmologist_debate_prompt, ophthalmologist_follow_ups = await run_ophthalmological_debate(case_id,ophthalmologist_history,neurologist_response,cardiologist_response,ophthalmologist_rag,model)
+    
+    if "Neurologist" in specialists_required:
+        neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate = _add_follow_ups_for_db(neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate,neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups)
+        common_follow_ups=_common_followups(neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups,model)
+        neuro_entry = NeurologistHistory(
+            case_id=case_id,
+            user_input=neurologist_debate_prompt,
+            agent_response=neurologist_response_after_debate,
+            answered_followups=[],
+            pending_questions=common_follow_ups,
+            timestamp=datetime.utcnow(),
+        )
+        db.add(neuro_entry)
+        db.commit()
+        db.refresh(neuro_entry)
+    if "Cardiologist" in specialists_required:
+        cardio_entry = CardiologistHistory(
+            case_id=case_id,
+            user_input=cardiologist_debate_prompt,
+            agent_response=cardiologist_response_after_debate,
+            answered_followups=[],
+            pending_questions=common_follow_ups,
+            timestamp=datetime.utcnow(),
+        )
+        db.add(cardio_entry)
+        db.commit()
+        db.refresh(cardio_entry)
 
-    cardio_entry = CardiologistHistory(
-        case_id=case_id,
-        user_input=cardiologist_debate_prompt,
-        agent_response=cardiologist_response_after_debate,
-        answered_followups=[],
-        pending_questions=common_follow_ups,
-        timestamp=datetime.utcnow(),
-    )
-    db.add(cardio_entry)
-    db.commit()
-    db.refresh(cardio_entry)
-
-    ophthal_entry = OphthalmologistHistory(
-        case_id=case_id,
-        user_input=ophthalmologist_debate_prompt,
-        agent_response=ophthalmologist_response_after_debate,
-        answered_followups=[],
-        pending_questions=common_follow_ups,
-        timestamp=datetime.utcnow(),
-    )
-    db.add(ophthal_entry)
-    db.commit()
-    db.refresh(ophthal_entry)
+    if "Ophthalmologist" in specialists_required:
+        ophthal_entry = OphthalmologistHistory(
+            case_id=case_id,
+            user_input=ophthalmologist_debate_prompt,
+            agent_response=ophthalmologist_response_after_debate,
+            answered_followups=[],
+            pending_questions=common_follow_ups,
+            timestamp=datetime.utcnow(),
+        )
+        db.add(ophthal_entry)
+        db.commit()
+        db.refresh(ophthal_entry)
     
     return {
         case_id:case_id,

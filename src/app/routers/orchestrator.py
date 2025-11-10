@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 import uuid
-from app.routers.structures import first_debate_round, initial_round
+from src.app.routers.structures import first_debate_round, initial_round
 from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile, Depends
 from typing import Optional, List
 from sqlalchemy import text
