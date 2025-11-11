@@ -137,9 +137,12 @@ However, **avoid asking questions already covered by the GP** (the GP's follow-u
 
 Output Format (must strictly follow):
 confidence: <updated confidence level as a number or percentage>
-diagnosis: <your final, possibly revised, cardiological diagnosis>
-explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a cardiological perspective only>
-follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>
+diagnosis: <your final, possibly revised, neurological diagnosis>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a neurological perspective only>
+follow_ups:
+1. <question 1>
+2. <question 2>
+...
 """
 
     messages = [SystemMessage(content=system_prompt)]
@@ -177,9 +180,13 @@ Remember:
 
 Output strictly in this format:
 confidence: <updated confidence level as a number or percentage>
-diagnosis: <your final, possibly revised, cardiological diagnosis>
-explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a cardiological perspective only>
-follow_ups: <any additional follow-up questions you want to ask, comma-separated. If none, write 'None'>"""
+diagnosis: <your final, possibly revised, neurological diagnosis>
+explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a neurological perspective only>
+follow_ups:
+1. <question 1>
+2. <question 2>
+...
+"""
 
     messages.append(HumanMessage(content=debate_prompt))
     response = llm.invoke(messages)

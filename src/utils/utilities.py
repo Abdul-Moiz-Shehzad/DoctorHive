@@ -7,37 +7,57 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from src.app.config import OPENAI_API_KEY, GOOGLE_API_KEY
 logger = logging.getLogger(__name__)
 
-def parse_specialist_response(text: str):
+def parse_specialist_response(text: str) -> dict:
     """
-    Parses the model output text and extracts confidence, diagnosis, explanation, and follow-up questions.
+    Parses the model output text and extracts:
+    - confidence (int or str)
+    - diagnosis (str)
+    - explanation (str)
+    - follow_ups (list of str)
+    Expected format:
+        confidence: <number or percentage>
+        diagnosis: <text>
+        explanation: <text>
+        follow_ups:
+        1. <question one>
+        2. <question two>
     """
-    confidence = ""
-    diagnosis = ""
-    explanation = ""
+    confidence = None
+    diagnosis = None
+    explanation = None
     follow_ups = []
 
     try:
-        lines = text.strip().split("\n")
-        for line in lines:
-            if line.lower().startswith("confidence:"):
-                confidence = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("diagnosis:"):
-                diagnosis = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("explanation:"):
-                explanation = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("follow_ups:"):
-                followup_text = line.split(":", 1)[1].strip()
-                if followup_text.lower() != "none":
-                    # Split on ? followed by optional whitespace
-                    parts = re.split(r'\?\s*', followup_text)
-                    follow_ups = [ (p.strip() + '?') for p in parts if p.strip() ]
-                else:
-                    follow_ups = []
+        conf_match = re.search(r"confidence:\s*([^\n]+)", text, re.IGNORECASE)
+        if conf_match:
+            conf_text = conf_match.group(1).strip()
+            try:
+                confidence = int(re.sub(r"[^\d]", "", conf_text))  
+            except ValueError:
+                confidence = conf_text  
+
+        diag_match = re.search(r"diagnosis:\s*([^\n]+)", text, re.IGNORECASE)
+        if diag_match:
+            diagnosis = diag_match.group(1).strip()
+
+        expl_match = re.search(r"explanation:\s*(.+?)(?=\n\s*follow_ups:|\Z)", text, re.IGNORECASE | re.DOTALL)
+        if expl_match:
+            explanation = expl_match.group(1).strip()
+
+        follow_section = re.search(r"follow_ups:\s*(.*)", text, re.IGNORECASE | re.DOTALL)
+        if follow_section:
+            follow_text = follow_section.group(1).strip()
+            if follow_text.lower() != "none":
+                follow_ups = re.findall(r"^\s*\d+\.\s*(.+)", follow_text, re.MULTILINE)
+                follow_ups = [q.strip() for q in follow_ups if q.strip()]
+            else:
+                follow_ups = []
+
     except Exception as e:
         explanation = f"Parsing error: {e}\nRaw output:\n{text}"
 
     return {
-        "confidence": int(confidence),
+        "confidence": confidence,
         "diagnosis": diagnosis,
         "explanation": explanation,
         "follow_ups": follow_ups

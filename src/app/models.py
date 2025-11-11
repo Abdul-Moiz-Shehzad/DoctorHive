@@ -38,6 +38,15 @@ class FollowUpResponse(BaseModel):
     answered_followups: List[Dict[str, Any]] = []
     specialists_required: Optional[List[str]] = None
 
+class FollowUpResponseSpecialists(BaseModel):
+    """Response for follow-up questions for specialists."""
+    case_id: str
+    stage: str
+    next_followup: Optional[str] = None
+    message: Optional[str] = None
+    answered_followups: List[Dict[str, Any]] = []
+
+
 class OrchestratorResponse(BaseModel):
     """Deprecated- use instead InitialOrchestratorResponse or FollowUpResponse."""
     case_id: str 

@@ -270,19 +270,13 @@ async def specialist_rounds(
         raise HTTPException(status_code=404, detail="Case not found")
     logger.info(f"Case {case_id} specialist rounds")
     message=db.query(Case.user_message).filter(Case.case_id == case_id).scalar()
-    initial_responses=await initial_round(case_id,message,model,db)
-    db.query(Case).filter(Case.case_id == case_id).update(
-        {Case.stage: "first_debate"}, synchronize_session=False
-    )
-    db.commit()
+    initial_responses=await initial_round(case_id,model,db)
+    
     logger.info(f"Case {case_id} First Debate Round")
-    first_debate_responses=await first_debate_round(case_id,model,initial_responses["responses"],db)
+    first_debate_responses=await first_debate_round(case_id,model,db)
     follow_ups_common = first_debate_responses.get("follow_ups_common", [])
     if follow_ups_common:
-        db.query(Case).filter(Case.case_id == case_id).update(
-            {Case.stage: "follow_up_specialist"}, synchronize_session=False
-        )
-        db.commit()
+        
         logger.info(f"Case {case_id} Follow-up Specialist Rounds")
         return first_debate_responses
 
