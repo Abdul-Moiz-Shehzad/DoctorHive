@@ -35,7 +35,7 @@ Confidence should reflect both the clarity of the symptoms and the certainty of 
 - Low confidence (1-39): Symptoms are vague, nonspecific, or overlap strongly with non-neurological conditions.
 - Zero (0): Clearly outside neurology.
 
-Always use this output format exactly (no extra words, no formatting changes):  
+Always use this output format exactly (no extra words, no formatting changes) dont use ``` or other markdown:
 confidence: <number between 0 and 100>
 diagnosis: <diagnosis or None>  
 explanation: <explanation>
@@ -190,7 +190,7 @@ Remember:
 - Always reason like a real neurologist, not an AI summarizer. Maintain domain boundaries: Focus on brain, nerves, and related systems; do not converge on a unified diagnosis outside neurology.
 - For follow-ups: Keep them simple and patient-oriented, focusing on what the patient can easily describe (e.g., feelings, habits, family stories). Avoid anything that requires medical expertise or test knowledge, as patients aren't expected to know about specific diseases or results.
 
-Output strictly in this format:
+Output strictly in this format (Dont use ``` or other markdown):
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, neurological diagnosis>
 explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a neurological perspective only>
@@ -220,6 +220,96 @@ follow_ups:
         system_prompt + "\n" + debate_prompt,
         follow_ups,
     )
+
+
+@router.post("/api/agents/neurologist/improved_diagnosis")
+async def run_neurological_improved_diagnosis(
+    case_id: str = Form(..., description="Case ID"),
+    history: List[Dict] = Form(..., description="History including follow-ups and debates"),
+    model: str = Form(..., description="Backend model: 'gpt' or 'gemini'")
+):
+    """
+    Generate an improved neurological diagnosis after reviewing:
+    - Follow-up question-answer pairs between Neurologist and patient.
+    - Debate among specialists (Neurologist, Cardiologist, Ophthalmologist).
+    - Prior neurological reasoning and context.
+    
+    The model must synthesize all this to refine the diagnosis,
+    updating the confidence and reasoning within neurological boundaries only.
+
+    Output format (strict):
+    confidence: <number between 0 and 100>
+    diagnosis: <diagnosis or None>
+    explanation: <reasoning>
+    """
+    llm = get_llm(model)
+
+    system_prompt = """
+You are a senior Neurologist reassessing your previous diagnosis after reviewing all patient interactions and specialist debates.
+You now have access to:
+- The patients full message history.
+- All your previous follow-up questions and patients answers.
+- Comments and debates from other specialists.
+- Your own prior reasoning (RAG).
+
+Your task:
+- Refine your diagnosis strictly within neurology (brain, spinal cord, nerves, neuromuscular conditions).
+- Adjust your confidence based on new information.
+- If findings reinforce your diagnosis, increase confidence modestly.
+- If new contradictions or uncertainties arise, lower confidence accordingly.
+- Provide a clear, clinical explanation of your reasoning — what evidence influenced the change (or confirmation) of your conclusion.
+
+Never drift into non-neurological domains (cardiology, ophthalmology, etc.).
+If overlap exists, discuss it only in terms of how it affects neurological interpretation.
+
+Output Format (exactly, with no deviations and written as plain text):
+confidence: <number between 0 and 100>
+diagnosis: <diagnosis or None>
+explanation: <explanation>
+"""
+
+    messages = [SystemMessage(content=system_prompt)]
+
+    for entry in history:
+        role = entry.get("role", "user")
+        content = entry.get("content", "")
+        timestamp = entry.get("timestamp", "")
+        formatted = f"[{timestamp}] {content}" if timestamp else content
+
+        if role == "user":
+            messages.append(HumanMessage(content=formatted))
+        elif role == "assistant":
+            messages.append(AIMessage(content=formatted))
+        else:
+            messages.append(HumanMessage(content=formatted))
+
+    user_prompt = f"""
+Based on the full chronological history above (including patient interactions, answered follow-ups, and specialist debates),
+refine your neurological diagnosis.
+
+Provide your final, improved output in the strict format written as plain text no use of ``` or other markdown:
+confidence: <number between 0 and 100>
+diagnosis: <diagnosis or None>
+explanation: <explanation>
+"""
+
+    messages.append(HumanMessage(content=user_prompt))
+
+    try:
+        response = llm.invoke(messages)
+        text = response.content.strip()
+        logging.info(f"LLM Raw response: {text}")
+        parsed = parse_specialist_response(text)
+        return Specialized_Agents_Diagnosis_Response(
+            confidence=parsed["confidence"],
+            diagnosis=parsed["diagnosis"],
+            explanation=parsed["explanation"],
+        ), system_prompt + "\n" + user_prompt
+    except Exception as e:
+        logger.error(f"LLM error during improved diagnosis: {e}")
+        raise HTTPException(status_code=500, detail="LLM backend error")
+
+
 
 app.include_router(router)
 

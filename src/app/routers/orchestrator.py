@@ -1,9 +1,10 @@
+from datetime import datetime
 import logging
 import os
 import shutil
 import sys
 import uuid
-from src.app.routers.structures import first_debate_round, initial_round
+from src.app.routers.structures import debate_round, initial_round
 from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile, Depends
 from typing import Optional, List
 from sqlalchemy import text
@@ -87,7 +88,9 @@ async def process_patient_message_and_files(
             answered_followups=[],
             pending_questions=[],
             specialists_required=[],
-            files_content=files_content
+            files_content=files_content,
+            timestamp=datetime.utcnow(),
+            consensus_winner={}
         )
         db.add(case)
         db.commit()
@@ -273,7 +276,7 @@ async def specialist_rounds(
     initial_responses=await initial_round(case_id,model,db)
     
     logger.info(f"Case {case_id} First Debate Round")
-    first_debate_responses=await first_debate_round(case_id,model,db)
+    first_debate_responses=await debate_round(case_id,model,db)
     follow_ups_common = first_debate_responses.get("follow_ups_common", [])
     if follow_ups_common:
         

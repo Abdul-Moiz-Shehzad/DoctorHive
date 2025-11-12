@@ -35,7 +35,7 @@ Confidence should reflect both the clarity of the symptoms and the certainty of 
 - Low confidence (1-39): Symptoms are vague, nonspecific, or overlap strongly with non-ophthalmological conditions.  
 - Zero (0): Clearly outside ophthalmology.
 
-Always use this output format exactly (no extra words, no formatting changes):  
+Always use this output format exactly (no extra words, no formatting changes) dont use ``` or other markdown:
 confidence: <number between 0 and 100>  
 diagnosis: <diagnosis or None>  
 explanation: <explanation>
@@ -150,7 +150,7 @@ If you still stand by your diagnosis or wish to refine it further, you may ask *
 However, **avoid asking questions already covered by the GP** (the GP's follow-up history will be provided). Only ask if a clinically relevant detail is missing or unclear.
 **Important: Follow-up questions must be simple, patient-friendly, and phrased as a doctor would ask a patient directly. Focus on symptoms, personal experiences, daily activities, family history, or lifestyle—avoid medical jargon, test requests, or questions assuming the patient knows about diseases, labs, or imaging results. For example, instead of 'Have you had a fundoscopy?', ask 'Have you noticed any changes in your vision, like blurriness or spots?'. Keep questions empathetic and easy to answer without prior medical knowledge.**
 
-Output Format (must strictly follow):
+Output Format (must strictly follow) dont use ``` or other markdown:
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, neurological diagnosis>
 explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a neurological perspective only>
@@ -193,7 +193,7 @@ Remember:
 - Always reason like a real ophthalmologist, not an AI summarizer. Maintain domain boundaries: Focus on eyes, vision, and related structures; do not converge on a unified diagnosis outside ophthalmology.
 - For follow-ups: Keep them simple and patient-oriented, focusing on what the patient can easily describe (e.g., feelings, habits, family stories). Avoid anything that requires medical expertise or test knowledge, as patients aren't expected to know about specific diseases or results.
 
-Output strictly in this format:
+Output strictly in this format dont use ``` or other markdown:
 confidence: <updated confidence level as a number or percentage>
 diagnosis: <your final, possibly revised, neurological diagnosis>
 explanation: <your detailed reasoning — mention whether you support, disagree, or modify based on others' points, and justify your stance. Frame from a neurological perspective only>
@@ -223,6 +223,93 @@ follow_ups:
         system_prompt + "\n" + debate_prompt,
         follow_ups,
     )
+
+
+@router.post("/api/agents/ophthalmologist/improved_diagnosis")
+async def run_ophthalmological_improved_diagnosis(
+    case_id: str = Form(..., description="Case ID"),
+    history: List[Dict] = Form(..., description="History including follow-ups and debates"),
+    model: str = Form(..., description="Backend model: 'gpt' or 'gemini'")
+):
+    """
+    Generate an improved ophthalmic diagnosis after reviewing:
+    - Follow-up question-answer pairs between Ophthalmologist and patient.
+    - Debate among specialists (Ophthalmologist, Neurologist, Cardiologist).
+    - Prior ophthalmic reasoning and context.
+
+    The model must synthesize all this to refine the diagnosis,
+    updating the confidence and reasoning within ophthalmic boundaries only.
+
+    Output format (strict):
+    confidence: <number between 0 and 100>
+    diagnosis: <diagnosis or None>
+    explanation: <reasoning>
+    """
+    llm = get_llm(model)
+
+    system_prompt = """
+You are a senior Ophthalmologist reassessing your previous diagnosis after reviewing all patient interactions and specialist discussions.
+You now have access to:
+- The patients full clinical message history.
+- All your prior follow-up questions and patients answers.
+- Comments and debates from other specialists.
+- Your previous ophthalmic reasoning (RAG).
+
+Your task:
+- Refine your diagnosis strictly within ophthalmology (eye, visual system, optic nerve, ocular circulation, retinal and corneal diseases, etc.).
+- Adjust your diagnostic confidence according to new information.
+- If findings strengthen your prior conclusion, increase confidence slightly.
+- If contradictory or unclear data emerges, reduce confidence appropriately.
+- Provide a clear and concise clinical explanation, highlighting which new evidence influenced your updated reasoning.
+
+Remain entirely within ophthalmology — do not drift into cardiology or neurology except to note their relevance to ocular findings (e.g., vascular or neuro-ophthalmic links).
+
+Output Format (exactly, with no deviations) dont use ``` or other markdown:
+confidence: <number between 0 and 100>
+diagnosis: <diagnosis or None>
+explanation: <explanation>
+"""
+
+    messages = [SystemMessage(content=system_prompt)]
+
+    for entry in history:
+        role = entry.get("role", "user")
+        content = entry.get("content", "")
+        timestamp = entry.get("timestamp", "")
+        formatted = f"[{timestamp}] {content}" if timestamp else content
+
+        if role == "user":
+            messages.append(HumanMessage(content=formatted))
+        elif role == "assistant":
+            messages.append(AIMessage(content=formatted))
+        else:
+            messages.append(HumanMessage(content=formatted))
+
+    user_prompt = f"""
+Based on the full chronological history above (including patient interactions, answered follow-ups, and specialist debates),
+refine your ophthalmic diagnosis.
+
+Provide your final, improved output in the strict format dont use ``` or other markdown:
+confidence: <number between 0 and 100>
+diagnosis: <diagnosis or None>
+explanation: <explanation>
+"""
+
+    messages.append(HumanMessage(content=user_prompt))
+
+    try:
+        response = llm.invoke(messages)
+        text = response.content.strip()
+        parsed = parse_specialist_response(text)
+        return Specialized_Agents_Diagnosis_Response(
+            confidence=parsed["confidence"],
+            diagnosis=parsed["diagnosis"],
+            explanation=parsed["explanation"],
+        ) , system_prompt + "\n" + user_prompt
+    except Exception as e:
+        logger.error(f"LLM error during improved ophthalmic diagnosis: {e}")
+        raise HTTPException(status_code=500, detail="LLM backend error")
+
 
 app.include_router(router)
 

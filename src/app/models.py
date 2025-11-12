@@ -67,6 +67,8 @@ class Case(Base):
     pending_questions = Column(JSONB, default=list)
     specialists_required = Column(JSONB, default=list)
     files_content = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    consensus_winner = Column(JSONB, default=dict)
 
 class Specialized_Agents_Diagnosis_Response(BaseModel):
     """Response for the Specialized agents diagnosis."""
