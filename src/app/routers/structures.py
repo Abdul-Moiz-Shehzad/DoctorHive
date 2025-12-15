@@ -40,7 +40,7 @@ async def initial_round(
         f"Attached reports:\n{files_content}"
         f"\n\nFollow-up history:\n{followup_history}"
     )
-    logger.info(f"Calling neurologist for case {case_id}")
+    logger.info(f"Calling specialists for case {case_id}")
     stage="initial"
     if "Neurologist" in specialists_required:
         neuro_response = await run_neurological_diagnosis(message,followup_history,files_content, model,stage)
@@ -241,6 +241,7 @@ async def debate_round(
     neurologist_history = ""
     cardiologist_history = ""
     ophthalmologist_history = ""
+    common_follow_ups = []
     check_flag = None # used to track the follow ups as they are common. Flag is used to track for accessing the database 
 
     if specialists_required is None:
@@ -272,13 +273,14 @@ async def debate_round(
     if "Ophthalmologist" in specialists_required:
         ophthalmologist_response_after_debate, ophthalmologist_debate_prompt, ophthalmologist_follow_ups = await run_ophthalmological_debate(case_id,ophthalmologist_history,neurologist_response,cardiologist_response,ophthalmologist_rag,model)
     
+    common_follow_ups=_common_followups(neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups,model, specialists_required)
+
     if "Neurologist" in specialists_required:
         neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate = _add_follow_ups_for_db(neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate,neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups, specialists_required)
-        common_follow_ups=_common_followups(neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups,model, specialists_required)
         neuro_entry = NeurologistHistory(
             case_id=case_id,
             user_input=neurologist_debate_prompt,
-            agent_response=neurologist_response_after_debate,
+            agent_response=neurologist_response_after_debate.model_dump(),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -290,7 +292,7 @@ async def debate_round(
         cardio_entry = CardiologistHistory(
             case_id=case_id,
             user_input=cardiologist_debate_prompt,
-            agent_response=cardiologist_response_after_debate,
+            agent_response=cardiologist_response_after_debate.model_dump(),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -303,7 +305,7 @@ async def debate_round(
         ophthal_entry = OphthalmologistHistory(
             case_id=case_id,
             user_input=ophthalmologist_debate_prompt,
-            agent_response=ophthalmologist_response_after_debate,
+            agent_response=ophthalmologist_response_after_debate.model_dump(),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -326,7 +328,7 @@ async def debate_round(
         case_id:case_id,
         "responses":{"neurologist":neurologist_response_after_debate if "Neurologist" in specialists_required else None,"cardiologist":cardiologist_response_after_debate if "Cardiologist" in specialists_required else None,"ophthalmologist":ophthalmologist_response_after_debate if "Ophthalmologist" in specialists_required else None},
         "follow_ups":{"neurologist":neurologist_follow_ups if "Neurologist" in specialists_required else None,"cardiologist":cardiologist_follow_ups if "Cardiologist" in specialists_required else None,"ophthalmologist":ophthalmologist_follow_ups if "Ophthalmologist" in specialists_required else None},
-        "follow_ups_common":(check_flag, common_follow_ups[0]),
+        "follow_ups_common":(check_flag, common_follow_ups[0] if common_follow_ups else None)
     } 
 
 
@@ -405,14 +407,14 @@ async def answer_followup(
             answered_followups=specialists_table.answered_followups
         )
     else:
-        next_action_message = "All GP follow-up questions answered. Case completed."
+        next_action_message = "All follow-up questions answered. Case completed."
 
         db.commit()
         db.refresh(specialists_table)
 
         return FollowUpResponseSpecialists(
             case_id=specialists_table.case_id,
-            stage="second_debate",
+            stage="debate",
             message=next_action_message,
             next_followup=None,
             answered_followups=specialists_table.answered_followups
@@ -674,7 +676,7 @@ async def chat_with_agent(
     agent_name: str = Form(..., description="Specialist name: Neurologist, Cardiologist, Ophthalmologist"),
     chat_type: int = Form(1, description="0 for Recommendation, 1 for Chat/Assistance"),
     user_message: str = Form(None, description="User's message for chat (only required if chat_type=1)"),
-    consensus_data: Dict[str, Any] = Body(None, description="Optional: Final consensus winner data {'winner', 'diagnosis', 'explanation'}"),
+    consensus_data_json: str = Form(None, description="Optional: Final consensus winner data {'winner', 'diagnosis', 'explanation'}"),
     db: Session = Depends(get_db),
 ):
     """
@@ -683,6 +685,17 @@ async def chat_with_agent(
     If chat_type=1: Allows user to chat directly with a specialist agent.
     If chat_type=0: Provides user-friendly recommendations based on the consensus winner.
     """
+    consensus_data: Dict[str, Any] = None
+    if consensus_data_json:
+        try:
+            # Safely convert the incoming JSON string into a Python dictionary
+            consensus_data = json.loads(consensus_data_json)
+        except json.JSONDecodeError:
+            # Raise a clear error if the string format is wrong
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid JSON format for consensus_data_json field. Ensure it is a valid JSON string."
+            )
     AGENT_MODELS = {
         "Neurologist": NeurologistHistory,
         "Cardiologist": CardiologistHistory,
