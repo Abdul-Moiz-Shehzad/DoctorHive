@@ -1,7 +1,7 @@
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.params import Form
 from typing import List, Dict, Any, Optional, Tuple
-from langchain.schema import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import uvicorn
 from src.app.models import Specialized_Agents_Diagnosis_Response
 from src.utils.utilities import _parse_initial_round_output, parse_specialist_response

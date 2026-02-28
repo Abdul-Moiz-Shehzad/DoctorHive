@@ -3,7 +3,7 @@ from fastapi.params import Form
 from typing import List, Dict, Any, Optional
 import uvicorn
 from src.app.models import Specialized_Agents_Diagnosis_Response
-from langchain.schema import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from src.utils.utilities import _parse_initial_round_output, parse_specialist_response
 from src.utils.utilities import get_llm
 import logging
