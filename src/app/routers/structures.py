@@ -260,7 +260,7 @@ async def debate_round(
         ophthalmologist_response = initial_responses["ophthalmologist"]
         ophthalmologist_rag = None # TODO: RAG for ophthalmologist
         ophthalmologist_history = _build_history(case_id,"ophthalmologist",db)
-        check_flag = "Ophthalmologist"
+        check_flag = "Ophthalmologist" 
 
     # Starting debate
 
