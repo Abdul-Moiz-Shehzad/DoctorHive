@@ -367,10 +367,12 @@ async def answer_followup(
                     specialists_table_name = CardiologistHistory
                 elif specialist == "Ophthalmologist":
                     specialists_table_name = OphthalmologistHistory
-                specialists_table_name.answered_followups = answered_followups
-                specialists_table_name.pending_questions = pending_questions
-                db.commit()
-                db.refresh(specialists_table_name)
+                other_specialists_table = db.query(specialists_table_name).filter(specialists_table_name.case_id == case_id).order_by(specialists_table_name.timestamp.desc()).first()
+                if other_specialists_table:
+                    other_specialists_table.answered_followups = answered_followups
+                    other_specialists_table.pending_questions = pending_questions
+                    db.commit()
+                    db.refresh(other_specialists_table)
             
         db.query(Case).filter(Case.case_id == case_id).update(
             {Case.stage: "improved_diagnosis"}, synchronize_session=False
@@ -420,7 +422,6 @@ async def answer_followup(
             answered_followups=specialists_table.answered_followups
         )
 
-
 @router.get("/specialists/get_case_state/{case_id}", response_model=FollowUpResponseSpecialists)
 async def get_case_state(case_id: str, db: Session = Depends(get_db)):
     """
@@ -434,8 +435,9 @@ async def get_case_state(case_id: str, db: Session = Depends(get_db)):
 
     return FollowUpResponseSpecialists(
         case_id=case.case_id,
-        message="Debug info: current case state.",
+        stage= case.stage,
         next_followup=next_followup,
+        message="Debug info: current case state.",
         answered_followups=case.answered_followups
     )
 
