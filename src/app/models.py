@@ -4,8 +4,14 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from src.database import Base, engine, SessionLocal
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
+
+try:
+    from sqlalchemy.dialects.postgresql import JSONB  # type: ignore
+except Exception:  # pragma: no cover
+    JSONB = None
+
+JSONLike = JSONB if getattr(engine.dialect, "name", None) == "postgresql" and JSONB is not None else JSON
 
 class UserInput(BaseModel):
     """Model for capturing patient input sent to the orchestrator."""
@@ -63,12 +69,12 @@ class Case(Base):
     case_id = Column(String, primary_key=True, index=True)
     user_message = Column(String)
     stage = Column(String, default="init")
-    answered_followups = Column(JSONB, default=list)
-    pending_questions = Column(JSONB, default=list)
-    specialists_required = Column(JSONB, default=list)
+    answered_followups = Column(JSONLike, default=list)
+    pending_questions = Column(JSONLike, default=list)
+    specialists_required = Column(JSONLike, default=list)
     files_content = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)
-    consensus_winner = Column(JSONB, default=dict)
+    consensus_winner = Column(JSONLike, default=dict)
 
 class Specialized_Agents_Diagnosis_Response(BaseModel):
     """Response for the Specialized agents diagnosis."""
@@ -84,8 +90,8 @@ class NeurologistHistory(Base):
     case_id = Column(String, ForeignKey("cases.case_id"))
     user_input = Column(String)
     agent_response = Column(JSON)
-    answered_followups = Column(JSONB, default=list)
-    pending_questions = Column(JSONB, default=list)
+    answered_followups = Column(JSONLike, default=list)
+    pending_questions = Column(JSONLike, default=list)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 class CardiologistHistory(Base):
@@ -95,8 +101,8 @@ class CardiologistHistory(Base):
     case_id = Column(String, ForeignKey("cases.case_id"))
     user_input = Column(String)
     agent_response = Column(JSON)
-    answered_followups = Column(JSONB, default=list)
-    pending_questions = Column(JSONB, default=list)
+    answered_followups = Column(JSONLike, default=list)
+    pending_questions = Column(JSONLike, default=list)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 class OphthalmologistHistory(Base):
@@ -106,6 +112,6 @@ class OphthalmologistHistory(Base):
     case_id = Column(String, ForeignKey("cases.case_id"))
     user_input = Column(String)
     agent_response = Column(JSON)
-    answered_followups = Column(JSONB, default=list)
-    pending_questions = Column(JSONB, default=list)
+    answered_followups = Column(JSONLike, default=list)
+    pending_questions = Column(JSONLike, default=list)
     timestamp = Column(DateTime, default=datetime.utcnow)

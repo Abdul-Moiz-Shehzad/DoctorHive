@@ -8,9 +8,12 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-client_gpt = OpenAI(api_key=OPENAI_API_KEY) 
-genai.configure(api_key=GOOGLE_API_KEY)
-model_gemini = genai.GenerativeModel("gemini-2.0-flash")
+client_gpt = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    model_gemini = genai.GenerativeModel("gemini-2.0-flash")
+else:
+    model_gemini = None
 
 # Create Upload Folder
 UPLOAD_FOLDER = "uploads"

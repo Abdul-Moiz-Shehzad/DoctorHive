@@ -2,7 +2,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Depends
 from fastapi.params import Form
 from typing import List, Dict, Any, Optional
 import uvicorn
-from src.utils.utilities import get_db, get_llm
+from src.utils.utilities import get_db, get_llm, invoke_with_retry
 from sqlalchemy.orm import Session
 from src.app.models import Case, GPResponse
 import logging
@@ -96,7 +96,7 @@ Do not change these formats under any circumstance.
 
     prompt = f"{system_prompt}\n\nPatient says: {user_message}"
     try:
-        raw_response = llm.invoke(prompt).content.strip()
+        raw_response = invoke_with_retry(llm, prompt).content.strip()
         logger.info(f"LLM Raw response: {raw_response}")
     except Exception as e:
         logger.error(f"LLM error: {e}")
@@ -144,9 +144,14 @@ async def GP_assess_case(
         response = gp_agent(input_data, model, case_state={})
         return response
 
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"Validation error in GP assessment: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error in GP assessment: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 app.include_router(router)
 

@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 import uuid
-from src.app.routers.structures import debate_round, initial_round
+from src.app.routers.structures import debate_round, initial_round, specialists_improved_diagnosis, determine_consensus_winner
 from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile, Depends
 from typing import Optional, List
 from sqlalchemy import text
@@ -15,7 +15,7 @@ from src.app.routers.agents.GP import GP_assess_case
 from src.utils.parse.parse_file import parse_endpoint
 from src.app.config import UPLOAD_FOLDER
 from src.database import Base, engine, SessionLocal
-from src.utils.utilities import get_db
+from src.utils.utilities import get_db, invoke_with_retry
 
 app = FastAPI(
     title="Orchestrator",
@@ -169,9 +169,15 @@ async def process_patient_message_and_files(
                 specialists_required=case.specialists_required
             )
 
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # Commonly raised for missing/invalid model configuration (e.g., missing API keys)
+        logger.warning(f"Validation error in orchestrator: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error in orchestrator: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/answer_followup", response_model=FollowUpResponse)
@@ -277,14 +283,22 @@ async def specialist_rounds(
     
     logger.info(f"Case {case_id} First Debate Round")
     first_debate_responses=await debate_round(case_id,model,db)
-    follow_ups_common = first_debate_responses.get("follow_ups_common", [])
-    if follow_ups_common:
-        
+    follow_ups_common = first_debate_responses.get("follow_ups_common", (None, None))
+    if follow_ups_common and follow_ups_common[1] is not None:
         logger.info(f"Case {case_id} Follow-up Specialist Rounds")
         return first_debate_responses
 
-    logger.info(f"Case {case_id} Follow-up Specialist Rounds")
-    return first_debate_responses
+    logger.info(f"Case {case_id} Improved Diagnosis Round")
+    improved_diagnosis_responses = await specialists_improved_diagnosis(case_id, model, db)
+
+    logger.info(f"Case {case_id} Consensus Winner Round")
+    consensus_winner_response = await determine_consensus_winner(case_id, model, db)
+
+    return {
+        **first_debate_responses,
+        "improved_diagnosis": improved_diagnosis_responses,
+        "consensus": consensus_winner_response
+    }
 
 
 

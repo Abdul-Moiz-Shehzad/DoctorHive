@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from src.app.models import CardiologistHistory, Case, FollowUpResponse, FollowUpResponseSpecialists, NeurologistHistory, OphthalmologistHistory
 from src.app.routers.agents.neurologist import run_neurological_debate, run_neurological_diagnosis, run_neurological_improved_diagnosis
 from datetime import datetime
-from src.utils.utilities import get_db, get_llm, parse_follow_ups, parse_specialist_response
+from src.utils.utilities import get_db, get_llm, parse_follow_ups, parse_specialist_response, invoke_with_retry
 
 router = APIRouter(prefix="/structures")
 logger=logging.getLogger(__name__)
@@ -186,7 +186,7 @@ def _common_followups(neurologist_follow_ups, cardiologist_follow_ups, ophthalmo
     
     prompt = f"{system_prompt}\n\n{all_specialist}"
     try:
-        raw_response = llm.invoke(prompt).content.strip()
+        raw_response = invoke_with_retry(llm, prompt).content.strip()
         logger.info(f"LLM Raw response: {raw_response}")
     except Exception as e:
         logger.error(f"LLM error: {e}")
@@ -652,7 +652,7 @@ Specialists responses:
 {history_prompt}
 """
 
-    llm_response_raw = llm.invoke(tie_breaker_prompt).content.strip()
+    llm_response_raw = invoke_with_retry(llm, tie_breaker_prompt).content.strip()
     
     try:
         parsed_result = _parse_consensus_output(llm_response_raw)
@@ -750,7 +750,7 @@ async def chat_with_agent(
         full_chat_history.append({"role": "user", "content": user_message})
         
         try:
-            llm_response = llm.invoke(full_chat_history).content
+            llm_response = invoke_with_retry(llm, full_chat_history).content
         except Exception as e:
             logger.error(f"LLM chat error for case {case_id}: {e}")
             raise HTTPException(status_code=500, detail="LLM chat backend error.")

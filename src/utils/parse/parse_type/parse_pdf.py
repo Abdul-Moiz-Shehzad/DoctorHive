@@ -1,7 +1,6 @@
 from typing import List
 import fitz
 from PIL import Image
-import easyocr
 import io
 import numpy as np
 import logging
@@ -9,7 +8,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ocr_reader = easyocr.Reader(['en'], gpu=False)
+try:
+    import easyocr  # type: ignore
+except Exception:  # pragma: no cover
+    easyocr = None
 
 def parse_pdf_files(file_path: str, use_ocr_if_empty: bool = True) -> str:
     """
@@ -33,11 +35,14 @@ def parse_pdf_files(file_path: str, use_ocr_if_empty: bool = True) -> str:
             page = doc[page_num]
             text = page.get_text().strip()
             
-            if not text and use_ocr_if_empty:
+            if not text and use_ocr_if_empty and easyocr is not None:
+                ocr_reader = easyocr.Reader(['en'], gpu=False)
                 pix = page.get_pixmap()
                 img = Image.open(io.BytesIO(pix.tobytes("png")))
                 ocr_result = ocr_reader.readtext(np.array(img), detail=0)
                 pdf_text += "\n".join(ocr_result) + "\n"
+            elif not text and use_ocr_if_empty and easyocr is None:
+                logger.warning("easyocr is not installed; skipping OCR for scanned PDF page.")
             else:
                 pdf_text += text + "\n"
 

@@ -1,12 +1,14 @@
 from PIL import Image
-import easyocr
 import logging
 import os
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-ocr_reader = easyocr.Reader(['en'], gpu=False)
+try:
+    import easyocr  # type: ignore
+except Exception:  # pragma: no cover
+    easyocr = None
 
 def parse_image_files(file_path: str) -> str:
     """
@@ -25,6 +27,10 @@ def parse_image_files(file_path: str) -> str:
     combined_text = []
     try:
         logger.info(f"Parsing image file with OCR: {file_path}")
+        if easyocr is None:
+            logger.warning("easyocr is not installed; skipping OCR for images.")
+            return ""
+        ocr_reader = easyocr.Reader(['en'], gpu=False)
         img = Image.open(file_path)
         ocr_result = ocr_reader.readtext(np.array(img), detail=0)
         combined_text.append("\n".join(ocr_result))

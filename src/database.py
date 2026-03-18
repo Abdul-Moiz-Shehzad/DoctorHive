@@ -1,5 +1,3 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -15,8 +13,19 @@ DB_PARAMS = {
     "port": os.getenv("DB_PORT", "5432"),
 }
 # Create SQLAlchemy engine
-SQLALCHEMY_DATABASE_URL = f"postgresql://{DB_PARAMS['user']}:{DB_PARAMS['password']}@{DB_PARAMS['host']}:{DB_PARAMS['port']}/{DB_PARAMS['dbname']}"
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+if DB_PARAMS["dbname"]:
+    SQLALCHEMY_DATABASE_URL = (
+        f"postgresql://{DB_PARAMS['user']}:{DB_PARAMS['password']}"
+        f"@{DB_PARAMS['host']}:{DB_PARAMS['port']}/{DB_PARAMS['dbname']}"
+    )
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+else:
+    # Local/dev fallback so the app can run without Postgres configured.
+    SQLALCHEMY_DATABASE_URL = "sqlite:///./doctorhive.db"
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+    )
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.params import Form
 from typing import List, Dict, Any, Optional, Tuple
-from langchain.schema import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import uvicorn
 from src.app.models import Specialized_Agents_Diagnosis_Response
 from src.utils.utilities import _parse_initial_round_output, parse_specialist_response
-from src.utils.utilities import get_llm
+from src.utils.utilities import get_llm, invoke_with_retry
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ explanation: Dizziness with posture changes is more often cardiovascular or vest
 """
     prompt=f"{system_prompt}\n\nPatient says: {user_message}"
     try:
-        raw_response = llm.invoke(prompt).content.strip()
+        raw_response = invoke_with_retry(llm, prompt).content.strip()
         logger.info(f"LLM Raw response: {raw_response}")
     except Exception as e:
         logger.error(f"LLM error: {e}")
@@ -202,7 +202,7 @@ follow_ups:
 
     messages.append(HumanMessage(content=debate_prompt))
 
-    response = llm.invoke(messages)
+    response = invoke_with_retry(llm, messages)
     text = response.content.strip()
 
     parsed = parse_specialist_response(text)
@@ -296,7 +296,7 @@ explanation: <explanation>
     messages.append(HumanMessage(content=user_prompt))
 
     try:
-        response = llm.invoke(messages)
+        response = invoke_with_retry(llm, messages)
         text = response.content.strip()
         logging.info(f"LLM Raw response: {text}")
         parsed = parse_specialist_response(text)

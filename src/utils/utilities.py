@@ -1,7 +1,9 @@
 import re
+import os
 from src.database import Base, engine, SessionLocal
 import time
 import logging
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.app.config import OPENAI_API_KEY, GOOGLE_API_KEY
@@ -118,11 +120,33 @@ def get_db():
 def get_llm(backend: str = "gemini"):
     if backend == "gpt":
         logger.info("Agent used GPT")
-        #raise ValueError("I wont burn my money just yet")
+        if not OPENAI_API_KEY:
+            raise ValueError(
+                "OpenAI API key required. Set OPENAI_API_KEY environment variable."
+            )
         return ChatOpenAI(model="gpt-5", temperature=1, api_key=OPENAI_API_KEY)
     elif backend == "gemini":
         logger.info("Agent used Gemini")
-        #time.sleep(60)
-        return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY)
+        if not GOOGLE_API_KEY and not os.getenv("GEMINI_API_KEY"):
+            raise ValueError(
+                "Gemini API key required. Set GOOGLE_API_KEY or GEMINI_API_KEY environment variable."
+            )
+        api_key = GOOGLE_API_KEY or os.getenv("GEMINI_API_KEY")
+        return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=api_key)
     else:
         raise ValueError("Unsupported backend. Use 'gpt' or 'gemini'.")
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    stop=stop_after_attempt(5),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
+def invoke_with_retry(llm, prompt):
+    """
+    Wraps the LLM invocation with exponential backoff retries.
+    Catches ALL exceptions (including Google 429 quota exhaustion and 503 timeouts)
+    and retries up to 5 times.
+    """
+    logger.info(f"Invoking LLM (attempt)...")
+    return llm.invoke(prompt)
