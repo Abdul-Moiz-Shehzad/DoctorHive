@@ -18,6 +18,14 @@ export type FollowUpResponse = {
   specialists_required: string[] | null;
 };
 
+export type SpecialistFollowUpState = {
+  case_id: string;
+  stage: string;
+  message: string | null;
+  next_followup: string | null;
+  answered_followups: Array<{ question: string; answer: string }>;
+};
+
 function normalizeBaseUrl(x: string) {
   return x.replace(/\/+$/, "");
 }
@@ -122,5 +130,29 @@ export async function runSpecialistRounds(params: {
   });
 
   return await parseJsonOrThrow<unknown>(res);
+}
+
+export async function getSpecialistFollowupState(params: {
+  caseId: string;
+}): Promise<SpecialistFollowUpState> {
+  const res = await fetchOrThrow(url(`/orchestrator/get_specialist_followup_state/${params.caseId}`), {
+    method: "GET"
+  });
+  return await parseJsonOrThrow<SpecialistFollowUpState>(res);
+}
+
+export async function answerSpecialistFollowup(params: {
+  caseId: string;
+  answer: string;
+}): Promise<SpecialistFollowUpState> {
+  const fd = new FormData();
+  fd.append("case_id", params.caseId);
+  fd.append("answer", params.answer);
+
+  const res = await fetchOrThrow(url("/orchestrator/answer_specialist_followup"), {
+    method: "POST",
+    body: fd
+  });
+  return await parseJsonOrThrow<SpecialistFollowUpState>(res);
 }
 

@@ -1,10 +1,13 @@
 import React, { useMemo, useState } from "react";
 import {
   answerFollowup,
+  answerSpecialistFollowup,
+  getSpecialistFollowupState,
   processCase,
   runSpecialistRounds,
   type BackendModel,
-  type InitialOrchestratorResponse
+  type InitialOrchestratorResponse,
+  type SpecialistFollowUpState
 } from "../api";
 import { PlusCircle, Send, UploadCloud, Stethoscope, FileSearch } from "lucide-react";
 
@@ -29,6 +32,9 @@ export default function Consultation() {
   const [specialistResult, setSpecialistResult] = useState<unknown>(null);
 
   const [followupAnswer, setFollowupAnswer] = useState("");
+  const [specialistFollowup, setSpecialistFollowup] =
+    useState<SpecialistFollowUpState | null>(null);
+  const [specialistFollowupAnswer, setSpecialistFollowupAnswer] = useState("");
   const [ui, setUi] = useState<UiState>({ kind: "idle" });
 
   const nextQuestion = orchestrator?.next_followup ?? null;
@@ -41,6 +47,10 @@ export default function Consultation() {
     followupAnswer.trim().length > 0 &&
     ui.kind !== "loading";
 
+  const specialistNext = specialistFollowup?.next_followup ?? null;
+  const canAnswerSpecialist =
+    !!caseId && !!specialistNext && specialistFollowupAnswer.trim().length > 0 && ui.kind !== "loading";
+
   const stageBadge = useMemo(() => {
     return orchestrator?.stage ?? "Intake";
   }, [orchestrator?.stage]);
@@ -48,6 +58,8 @@ export default function Consultation() {
   async function onStartOrContinue() {
     setUi({ kind: "loading", label: caseId ? "Continuing case..." : "Analyzing patient data..." });
     setSpecialistResult(null);
+    setSpecialistFollowup(null);
+    setSpecialistFollowupAnswer("");
     try {
       const res = await processCase({
         message,
@@ -65,6 +77,13 @@ export default function Consultation() {
         try {
           const specRes = await runSpecialistRounds({ caseId: res.case_id, model });
           setSpecialistResult(specRes);
+          // If specialists have follow-ups, expose them in the UI.
+          try {
+            const s = await getSpecialistFollowupState({ caseId: res.case_id });
+            setSpecialistFollowup(s.next_followup ? s : null);
+          } catch {
+            // ignore; specialist follow-up UI is optional
+          }
           setUi({ kind: "ready" });
         } catch (specErr) {
           setUi({ kind: "error", message: specErr instanceof Error ? specErr.message : String(specErr) });
@@ -110,6 +129,12 @@ export default function Consultation() {
         try {
           const specRes = await runSpecialistRounds({ caseId, model });
           setSpecialistResult(specRes);
+          try {
+            const s = await getSpecialistFollowupState({ caseId });
+            setSpecialistFollowup(s.next_followup ? s : null);
+          } catch {
+            // ignore
+          }
           setUi({ kind: "ready" });
         } catch (specErr) {
           setUi({ kind: "error", message: specErr instanceof Error ? specErr.message : String(specErr) });
@@ -123,6 +148,28 @@ export default function Consultation() {
     }
   }
 
+  async function onAnswerSpecialistFollowup() {
+    if (!caseId) return;
+    setUi({ kind: "loading", label: "Transmitting specialist follow-up..." });
+    try {
+      const res = await answerSpecialistFollowup({ caseId, answer: specialistFollowupAnswer });
+      setSpecialistFollowup(res.next_followup ? res : null);
+      setSpecialistFollowupAnswer("");
+
+      // When completed, backend returns improved diagnosis + consensus in message.
+      if (!res.next_followup && res.message) {
+        try {
+          setSpecialistResult(JSON.parse(res.message));
+        } catch {
+          setSpecialistResult(res.message);
+        }
+      }
+      setUi({ kind: "ready" });
+    } catch (e) {
+      setUi({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   function onReset() {
     setCaseId(null);
     setOrchestrator(null);
@@ -130,6 +177,8 @@ export default function Consultation() {
     setMessage("");
     setFiles([]);
     setFollowupAnswer("");
+    setSpecialistFollowup(null);
+    setSpecialistFollowupAnswer("");
     setUi({ kind: "idle" });
   }
 
@@ -250,6 +299,39 @@ export default function Consultation() {
                     </button>
                  </div>
                </div>
+            )}
+
+            {specialistNext && !nextQuestion && (
+              <div className="timeline-event follow-up">
+                <div className="event-badge spec">★</div>
+                <div
+                  className="event-content"
+                  style={{
+                    background: "rgba(34, 197, 94, 0.06)",
+                    border: "1px solid rgba(34, 197, 94, 0.25)",
+                    padding: "16px",
+                    borderRadius: "12px"
+                  }}
+                >
+                  <div className="smallTitle">Specialist Follow-up</div>
+                  <div className="mono mb-4">{specialistNext}</div>
+
+                  <input
+                    style={{ marginTop: "12px" }}
+                    value={specialistFollowupAnswer}
+                    onChange={(e) => setSpecialistFollowupAnswer(e.target.value)}
+                    placeholder="Enter patient's response..."
+                    disabled={ui.kind === "loading"}
+                  />
+                  <button
+                    onClick={onAnswerSpecialistFollowup}
+                    disabled={!canAnswerSpecialist}
+                    style={{ marginTop: "12px", padding: "10px 16px", fontSize: "14px" }}
+                  >
+                    Submit Answer
+                  </button>
+                </div>
+              </div>
             )}
 
             {Array.isArray(specialists) && specialists.length > 0 && !nextQuestion && (

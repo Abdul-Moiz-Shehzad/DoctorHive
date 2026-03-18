@@ -10,7 +10,15 @@ from typing import Optional, List
 from sqlalchemy import text
 from sqlalchemy.orm import Session
  
-from src.app.models import InitialOrchestratorResponse, FollowUpResponse, Case
+from src.app.models import (
+    InitialOrchestratorResponse,
+    FollowUpResponse,
+    FollowUpResponseSpecialists,
+    Case,
+    NeurologistHistory,
+    CardiologistHistory,
+    OphthalmologistHistory,
+)
 from src.app.routers.agents.GP import GP_assess_case
 from src.utils.parse.parse_file import parse_endpoint
 from src.app.config import UPLOAD_FOLDER
@@ -299,6 +307,159 @@ async def specialist_rounds(
         "improved_diagnosis": improved_diagnosis_responses,
         "consensus": consensus_winner_response
     }
+
+
+def _latest_specialist_row(db: Session, case_id: str, model_cls):
+    return (
+        db.query(model_cls)
+        .filter(model_cls.case_id == case_id)
+        .order_by(model_cls.timestamp.desc())
+        .first()
+    )
+
+
+@router.get("/get_specialist_followup_state/{case_id}", response_model=FollowUpResponseSpecialists)
+async def get_specialist_followup_state(case_id: str, db: Session = Depends(get_db)):
+    """
+    Returns the next pending specialist follow-up question (if any).
+    This is separate from GP follow-ups.
+    """
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case ID not found")
+
+    specialists_required = case.specialists_required or []
+    # We store the common pending questions in each specialist history row; pick the most recent.
+    agent_models = {
+        "Neurologist": NeurologistHistory,
+        "Cardiologist": CardiologistHistory,
+        "Ophthalmologist": OphthalmologistHistory,
+    }
+
+    for specialist in specialists_required:
+        model_cls = agent_models.get(specialist)
+        if not model_cls:
+            continue
+        row = _latest_specialist_row(db, case_id, model_cls)
+        if row and row.pending_questions:
+            next_q = row.pending_questions[0]
+            return FollowUpResponseSpecialists(
+                case_id=case_id,
+                stage="follow_up_specialist",
+                message="Pending specialist follow-up.",
+                next_followup=next_q,
+                answered_followups=row.answered_followups or [],
+            )
+
+    return FollowUpResponseSpecialists(
+        case_id=case_id,
+        stage=case.stage,
+        message="No pending specialist follow-up questions.",
+        next_followup=None,
+        answered_followups=[],
+    )
+
+
+@router.post("/answer_specialist_followup", response_model=FollowUpResponseSpecialists)
+async def answer_specialist_followup(
+    case_id: str = Form(..., description="Case ID of the ongoing consultation"),
+    answer: str = Form(..., description="Patient's answer to the current specialist follow-up question"),
+    db: Session = Depends(get_db),
+):
+    """
+    Records a patient's answer to the specialists' *common* follow-up queue.
+    Once all specialist follow-ups are answered, this endpoint will automatically
+    run the improved diagnosis + consensus rounds and return them in `message`.
+    """
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case ID not found")
+
+    specialists_required = case.specialists_required or []
+    agent_models = {
+        "Neurologist": NeurologistHistory,
+        "Cardiologist": CardiologistHistory,
+        "Ophthalmologist": OphthalmologistHistory,
+    }
+
+    # Find any specialist row with pending questions (they should all share the same queue).
+    active_row = None
+    active_model = None
+    for specialist in specialists_required:
+        model_cls = agent_models.get(specialist)
+        if not model_cls:
+            continue
+        row = _latest_specialist_row(db, case_id, model_cls)
+        if row and row.pending_questions:
+            active_row = row
+            active_model = model_cls
+            break
+
+    if not active_row or not active_row.pending_questions:
+        return FollowUpResponseSpecialists(
+            case_id=case_id,
+            stage=case.stage,
+            message="No pending specialist follow-up questions.",
+            next_followup=None,
+            answered_followups=[],
+        )
+
+    current_question = active_row.pending_questions[0]
+    remaining_questions = active_row.pending_questions[1:]
+    answered = list(active_row.answered_followups or [])
+    answered.append({"question": current_question, "answer": answer})
+
+    # Apply updated queue + answers to all specialists' latest rows (keep them in sync).
+    for specialist in specialists_required:
+        model_cls = agent_models.get(specialist)
+        if not model_cls:
+            continue
+        row = _latest_specialist_row(db, case_id, model_cls)
+        if not row:
+            continue
+        row.pending_questions = remaining_questions
+        row.answered_followups = answered
+
+    db.commit()
+
+    if remaining_questions:
+        # still more specialist follow-ups to answer
+        db.query(Case).filter(Case.case_id == case_id).update(
+            {Case.stage: "follow_up_specialist"}, synchronize_session=False
+        )
+        db.commit()
+        return FollowUpResponseSpecialists(
+            case_id=case_id,
+            stage="follow_up_specialist",
+            message="Answer recorded.",
+            next_followup=remaining_questions[0],
+            answered_followups=answered,
+        )
+
+    # No more specialist follow-ups -> run improved diagnosis + consensus now.
+    db.query(Case).filter(Case.case_id == case_id).update(
+        {Case.stage: "improved_diagnosis"}, synchronize_session=False
+    )
+    db.commit()
+
+    # Default to gemini if caller didn’t specify; match frontend’s default.
+    model = "gemini"
+    try:
+        improved = await specialists_improved_diagnosis(case_id, model, db)
+        consensus = await determine_consensus_winner(case_id, model, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed completing specialists for case {case_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed completing specialist consensus.")
+
+    return FollowUpResponseSpecialists(
+        case_id=case_id,
+        stage="completed",
+        message=str({"improved_diagnosis": improved, "consensus": consensus}),
+        next_followup=None,
+        answered_followups=answered,
+    )
 
 
 
