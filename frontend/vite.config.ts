@@ -5,7 +5,22 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    proxy: {
+      // Avoid CORS/mixed-content in dev by proxying API calls through Vite.
+      "/orchestrator": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true
+      },
+      "/docs": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true
+      },
+      "/openapi.json": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true
+      }
+    }
   }
 });
 

@@ -18,9 +18,41 @@ export type FollowUpResponse = {
   specialists_required: string[] | null;
 };
 
-const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ??
-  "http://localhost:8000";
+function normalizeBaseUrl(x: string) {
+  return x.replace(/\/+$/, "");
+}
+
+// If `VITE_API_BASE` is unset:
+// - in dev, default to "" (use the Vite proxy, same-origin)
+// - in prod, default to the local backend (override via VITE_API_BASE for deployments)
+const API_BASE = normalizeBaseUrl(
+  (
+    (import.meta.env.VITE_API_BASE as string | undefined) ??
+    (import.meta.env.DEV ? "" : "http://localhost:8000")
+  ).trim()
+);
+
+function url(path: string) {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return API_BASE ? `${API_BASE}${p}` : p;
+}
+
+async function fetchOrThrow(input: RequestInfo | URL, init?: RequestInit) {
+  try {
+    return await fetch(input, init);
+  } catch (e) {
+    // Browser collapses CORS/mixed-content/DNS/refused-connection into `TypeError: Failed to fetch`.
+    const hint =
+      `Network error contacting backend.\n` +
+      `Tried: ${typeof input === "string" ? input : String(input)}\n\n` +
+      `Check:\n` +
+      `- backend is running (uvicorn on port 8000)\n` +
+      `- VITE_API_BASE points to the correct host (or use Vite proxy)\n` +
+      `- no HTTPS->HTTP mixed-content blocking\n` +
+      `- CORS allows this origin`;
+    throw new Error(e instanceof Error ? `${e.message}\n\n${hint}` : hint);
+  }
+}
 
 async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -52,7 +84,7 @@ export async function processCase(params: {
   if (params.caseId) fd.append("case_id", params.caseId);
   for (const f of params.files ?? []) fd.append("files", f);
 
-  const res = await fetch(`${API_BASE}/orchestrator/process`, {
+  const res = await fetchOrThrow(url("/orchestrator/process"), {
     method: "POST",
     body: fd
   });
@@ -68,7 +100,7 @@ export async function answerFollowup(params: {
   fd.append("case_id", params.caseId);
   fd.append("answer", params.answer);
 
-  const res = await fetch(`${API_BASE}/orchestrator/answer_followup`, {
+  const res = await fetchOrThrow(url("/orchestrator/answer_followup"), {
     method: "POST",
     body: fd
   });
@@ -84,7 +116,7 @@ export async function runSpecialistRounds(params: {
   fd.append("case_id", params.caseId);
   fd.append("model", params.model);
 
-  const res = await fetch(`${API_BASE}/orchestrator/specialist_rounds`, {
+  const res = await fetchOrThrow(url("/orchestrator/specialist_rounds"), {
     method: "POST",
     body: fd
   });

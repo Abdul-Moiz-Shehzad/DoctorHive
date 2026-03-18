@@ -18,6 +18,24 @@ app = FastAPI(
     description="Handles all the flow of specialists",
     version="2.0"
 )
+
+def _as_dict(x: Any) -> Dict[str, Any]:
+    """
+    Normalize Specialist responses into plain dicts.
+    Supports Pydantic v2 (`model_dump`) and v1 (`dict`), and passes through dicts.
+    """
+    if x is None:
+        return {}
+    if isinstance(x, dict):
+        return x
+    model_dump = getattr(x, "model_dump", None)
+    if callable(model_dump):
+        return model_dump()
+    as_dict = getattr(x, "dict", None)
+    if callable(as_dict):
+        return as_dict()
+    # Fall back to a best-effort representation
+    return {"value": x}
 @router.post("/specialists/initial_round")
 async def initial_round(
     case_id: str = Form(...),
@@ -162,13 +180,13 @@ def _build_history(case_id: str, agent: str, db):
 def _add_follow_ups_for_db(neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate,neurologist_follow_ups,cardiologist_follow_ups,ophthalmologist_follow_ups, specialists_required):
     """Add the follow up questions asked by specialists to the database"""
     if "Neurologist" in specialists_required:
-        neurologist_response_after_debate=neurologist_response_after_debate.dict()
+        neurologist_response_after_debate=_as_dict(neurologist_response_after_debate)
         neurologist_response_after_debate["follow_ups"]=neurologist_follow_ups
     if "Cardiologist" in specialists_required:
-        cardiologist_response_after_debate=cardiologist_response_after_debate.dict()
+        cardiologist_response_after_debate=_as_dict(cardiologist_response_after_debate)
         cardiologist_response_after_debate["follow_ups"]=cardiologist_follow_ups
     if "Ophthalmologist" in specialists_required:
-        ophthalmologist_response_after_debate=ophthalmologist_response_after_debate.dict()
+        ophthalmologist_response_after_debate=_as_dict(ophthalmologist_response_after_debate)
         ophthalmologist_response_after_debate["follow_ups"]=ophthalmologist_follow_ups
     return neurologist_response_after_debate,cardiologist_response_after_debate,ophthalmologist_response_after_debate
 
@@ -280,7 +298,7 @@ async def debate_round(
         neuro_entry = NeurologistHistory(
             case_id=case_id,
             user_input=neurologist_debate_prompt,
-            agent_response=neurologist_response_after_debate.model_dump(),
+            agent_response=_as_dict(neurologist_response_after_debate),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -292,7 +310,7 @@ async def debate_round(
         cardio_entry = CardiologistHistory(
             case_id=case_id,
             user_input=cardiologist_debate_prompt,
-            agent_response=cardiologist_response_after_debate.model_dump(),
+            agent_response=_as_dict(cardiologist_response_after_debate),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -305,7 +323,7 @@ async def debate_round(
         ophthal_entry = OphthalmologistHistory(
             case_id=case_id,
             user_input=ophthalmologist_debate_prompt,
-            agent_response=ophthalmologist_response_after_debate.model_dump(),
+            agent_response=_as_dict(ophthalmologist_response_after_debate),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -325,7 +343,7 @@ async def debate_round(
         db.commit()
     
     return {
-        case_id:case_id,
+        "case_id": case_id,
         "responses":{"neurologist":neurologist_response_after_debate if "Neurologist" in specialists_required else None,"cardiologist":cardiologist_response_after_debate if "Cardiologist" in specialists_required else None,"ophthalmologist":ophthalmologist_response_after_debate if "Ophthalmologist" in specialists_required else None},
         "follow_ups":{"neurologist":neurologist_follow_ups if "Neurologist" in specialists_required else None,"cardiologist":cardiologist_follow_ups if "Cardiologist" in specialists_required else None,"ophthalmologist":ophthalmologist_follow_ups if "Ophthalmologist" in specialists_required else None},
         "follow_ups_common":(check_flag, common_follow_ups[0] if common_follow_ups else None)
