@@ -20,8 +20,7 @@ from src.utils.parse.parse_file import parse_endpoint
 from src.app.config import UPLOAD_FOLDER
 from src.database import Base, engine, SessionLocal
 from src.utils.utilities import get_db
-
-from src.app.config import neurology_knowledge_base_location, cardiology_knowledge_base_location, ophthalmology_knowledge_base_location
+from src.utils.rag_helper import call_rag
 
 app = FastAPI(
     title="Orchestrator",
@@ -304,18 +303,14 @@ async def neurology_knowledge_base(
     case = db.query(Case).filter(Case.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+
     logger.info(f"Case {case_id} Neurology Knowledge Base")
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
-    vector_db = Chroma(
-        persist_directory=neurology_knowledge_base_location,
-        embedding_function=embeddings
-    )
-
-    docs = vector_db.similarity_search(text, k=3)
-    for d in docs:
-        print(d.metadata, d.page_content[:200])
-    return docs
+    try:
+        result = call_rag("neurology_knowledge_base", text, case_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/cardiology_knowledge_base")
@@ -327,18 +322,14 @@ async def cardiology_knowledge_base(
     case = db.query(Case).filter(Case.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+
     logger.info(f"Case {case_id} Cardiology Knowledge Base")
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
-    vector_db = Chroma(
-        persist_directory=cardiology_knowledge_base_location,
-        embedding_function=embeddings
-    )
-
-    docs = vector_db.similarity_search(text, k=3)
-    for d in docs:
-        print(d.metadata, d.page_content[:200])
-    return docs
+    try:
+        result = call_rag("cardiology_knowledge_base", text, case_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/ophthalmology_knowledge_base")
@@ -350,18 +341,14 @@ async def ophthalmology_knowledge_base(
     case = db.query(Case).filter(Case.case_id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+
     logger.info(f"Case {case_id} Ophthalmology Knowledge Base")
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
-    vector_db = Chroma(
-        persist_directory=ophthalmology_knowledge_base_location,
-        embedding_function=embeddings
-    )
-
-    docs = vector_db.similarity_search(text, k=3)
-    for d in docs:
-        print(d.metadata, d.page_content[:200])
-    return docs
+    try:
+        result = call_rag("ophthalmology_knowledge_base", text, case_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # -----------------------------
 # Shutdown Hook
