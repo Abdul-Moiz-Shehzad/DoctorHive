@@ -4,23 +4,35 @@ import os
 import shutil
 import sys
 import uuid
-
+from typing import Optional, List, Any, Dict
 from dotenv import load_dotenv
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_chroma import Chroma
-from src.app.routers.structures import debate_round, initial_round
 from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile, Depends
-from typing import Optional, List
+from fastapi.params import File
 from sqlalchemy import text
 from sqlalchemy.orm import Session
- 
-from src.app.models import InitialOrchestratorResponse, FollowUpResponse, Case
-from src.app.routers.agents.GP import GP_assess_case
-from src.utils.parse.parse_file import parse_endpoint
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_chroma import Chroma
 from src.app.config import UPLOAD_FOLDER
+from src.app.models import (
+    InitialOrchestratorResponse,
+    FollowUpResponse,
+    Case,
+    NeurologistHistory,
+    CardiologistHistory,
+    OphthalmologistHistory,
+)
+from src.app.routers.agents.GP import GP_assess_case
+from src.app.routers.structures import (
+    initial_round,
+    debate_round,
+    answer_followup as specialists_answer_followup,
+    specialists_improved_diagnosis,
+    determine_consensus_winner,
+    chat_with_agent,
+)
 from src.database import Base, engine, SessionLocal
+from src.utils.parse.parse_file import parse_endpoint
 from src.utils.utilities import get_db
-from src.utils.rag_helper import call_rag
 
 app = FastAPI(
     title="Orchestrator",
@@ -96,7 +108,8 @@ async def process_patient_message_and_files(
             specialists_required=[],
             files_content=files_content,
             timestamp=datetime.utcnow(),
-            consensus_winner={}
+            consensus_winner={},
+            debate_round_count=0
         )
         db.add(case)
         db.commit()
@@ -130,7 +143,7 @@ async def process_patient_message_and_files(
                 case.pending_questions = case.pending_questions + new_qs
 
             case.specialists_required = gp_response.specialists_required or []
-            case.stage = "follow_up"
+            case.stage = "general_follow_up"
 
             db.commit()
             db.refresh(case)
@@ -221,7 +234,7 @@ async def answer_followup(
 
         return FollowUpResponse(
             case_id=case.case_id,
-            stage="follow_up",
+            stage="general_follow_up",
             message="Answer recorded.",
             next_followup=next_question,
             answered_followups=case.answered_followups,
@@ -268,87 +281,416 @@ async def get_case_state(case_id: str, db: Session = Depends(get_db)):
         specialists_required=case.specialists_required
     )
 
-@router.post("/specialist_rounds")
-async def specialist_rounds(
-    case_id: str = Form(...),
-    model: str = Form(...),
-    db: Session = Depends(get_db)
+MAX_DEBATE_ROUNDS = 2
+
+def _get_specialist_table_by_name(name: str):
+    mapping = {
+        "Neurologist": NeurologistHistory,
+        "Cardiologist": CardiologistHistory,
+        "Ophthalmologist": OphthalmologistHistory,
+    }
+    return mapping.get(name)
+
+def _resolve_specialist_check_flag(case: Case, db: Session) -> Optional[str]:
+    """
+    specialists.py answer_followup requires check_flag.
+    To reduce frontend load, infer it here.
+    Since debate_round writes the same common followups to all specialist tables,
+    we can use the first specialist that still has pending questions.
+    """
+    specialists_required = case.specialists_required or []
+
+    for specialist in specialists_required:
+        table = _get_specialist_table_by_name(specialist)
+        if not table:
+            continue
+
+        latest = (
+            db.query(table)
+            .filter(table.case_id == case.case_id)
+            .order_by(table.timestamp.desc())
+            .first()
+        )
+
+        if latest and latest.pending_questions:
+            return specialist
+
+    return specialists_required[0] if specialists_required else None
+
+@router.post("/doctorhive")
+async def doctorhive(
+    case_id: Optional[str] = Form(
+        None,
+        description="Case ID for an existing consultation. Leave empty to start a new case."
+    ),
+    model: str = Form(
+        ...,
+        description="LLM model to use for processing (e.g., 'gemini')."
+    ),
+    message: Optional[str] = Form(
+        None,
+        description="Patient's main message or complaint. Required when starting a new case or sending a new query."
+    ),
+    answer: Optional[str] = Form(
+        None,
+        description="Patient's answer to a follow-up question (GP or specialist)."
+    ),
+    files: Optional[List[UploadFile]] = File(
+        None,
+        description="Optional medical files (reports, images, etc.) uploaded by the patient."
+    ),
+    agent_name: Optional[str] = Form(
+        None,
+        description="Name of the specialist to chat with after consensus (e.g., Neurologist). Used only in transfer_control stage."
+    ),
+    chat_type: Optional[int] = Form(
+        None,
+        description="Type of interaction in transfer_control stage: 0 = get recommendation/summary from winning specialist, 1 = direct chat with specialist."
+    ),
+    user_message: Optional[str] = Form(
+        None,
+        description="Message sent by the user when chatting directly with a specialist (chat_type=1)."
+    ),
+    consensus_data_json: Optional[str] = Form(
+        None,
+        description="Optional JSON string containing consensus or decision data passed to the final stage."
+    ),
+    db: Session = Depends(get_db),
 ):
+    """
+    Single driver endpoint for the full lifecycle.
+
+    Rules:
+    - no case_id => create/process new case via GP orchestrator
+    - existing case => inspect case.stage and automatically call the correct function
+    """
+
+    # normalize swagger empty strings
+    case_id = case_id.strip() if case_id else None
+    message = message.strip() if message else None
+    answer = answer.strip() if answer else None
+    agent_name = agent_name.strip() if agent_name else None
+    user_message = user_message.strip() if user_message else None
+    consensus_data_json = consensus_data_json.strip() if consensus_data_json else None
+    files = files or []
+
+    # -----------------------------
+    # 1) New case: start from GP orchestration
+    # -----------------------------
+    if not case_id:
+        if not message:
+            raise HTTPException(
+                status_code=400,
+                detail="message is required when case_id is not provided"
+            )
+
+        return await process_patient_message_and_files(
+            message=message,
+            files=files,
+            model=model,
+            case_id=None,
+            db=db,
+        )
+
+    # -----------------------------
+    # 2) Existing case
+    # -----------------------------
     case = db.query(Case).filter(Case.case_id == case_id).first()
     if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-    logger.info(f"Case {case_id} specialist rounds")
-    message=db.query(Case.user_message).filter(Case.case_id == case_id).scalar()
-    initial_responses=await initial_round(case_id,model,db)
-    
-    logger.info(f"Case {case_id} First Debate Round")
-    first_debate_responses=await debate_round(case_id,model,db)
-    follow_ups_common = first_debate_responses.get("follow_ups_common", [])
-    if follow_ups_common:
-        
-        logger.info(f"Case {case_id} Follow-up Specialist Rounds")
-        return first_debate_responses
+        raise HTTPException(status_code=404, detail="Case ID not found")
 
-    logger.info(f"Case {case_id} Follow-up Specialist Rounds")
-    return first_debate_responses
+    stage = case.stage
 
+    # -----------------------------
+    # GP stages
+    # -----------------------------
+    if stage == "init":
+        if not message:
+            raise HTTPException(
+                status_code=400,
+                detail="message is required for stage='init'"
+            )
 
+        return await process_patient_message_and_files(
+            message=message,
+            files=files,
+            model=model,
+            case_id=case_id,
+            db=db,
+        )
 
-@router.post("/neurology_knowledge_base")
-async def neurology_knowledge_base(
-    case_id: str = Form(...),
-    text: str = Form(...),
-    db: Session = Depends(get_db)
-):
-    case = db.query(Case).filter(Case.case_id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+    if stage == "general_follow_up":
+        if not answer:
+            next_question = case.pending_questions[0] if case.pending_questions else None
+            return {
+                "case_id": case.case_id,
+                "stage": case.stage,
+                "message": "Patient answer required for GP follow-up.",
+                "next_followup": next_question,
+                "answered_followups": case.answered_followups,
+                "specialists_required": case.specialists_required,
+            }
 
-    logger.info(f"Case {case_id} Neurology Knowledge Base")
+        return await answer_followup(
+            case_id=case_id,
+            answer=answer,
+            db=db,
+        )
 
-    try:
-        result = call_rag("neurology_knowledge_base", text, case_id)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if stage == "direct_reply":
+        return {
+            "case_id": case.case_id,
+            "stage": stage,
+            "message": "GP has already provided a direct reply for this case.",
+            "next_action": "frontend can show GP response and optionally close this case",
+        }
 
+    if stage == "unknown":
+        return {
+            "case_id": case.case_id,
+            "stage": stage,
+            "message": "Case is in unknown state. Manual inspection required.",
+        }
 
-@router.post("/cardiology_knowledge_base")
-async def cardiology_knowledge_base(
-    case_id: str = Form(...),
-    text: str = Form(...),
-    db: Session = Depends(get_db)
-):
-    case = db.query(Case).filter(Case.case_id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+    # -----------------------------
+    # Specialist stages
+    # -----------------------------
+    if stage == "initial_round":
+        result = await initial_round(
+            case_id=case_id,
+            model=model,
+            db=db,
+        )
 
-    logger.info(f"Case {case_id} Cardiology Knowledge Base")
+        refreshed_case = db.query(Case).filter(Case.case_id == case_id).first()
+        refreshed_case.debate_round_count = 1
+        db.commit()
+        db.refresh(refreshed_case)
 
-    try:
-        result = call_rag("cardiology_knowledge_base", text, case_id)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "case_id": case_id,
+            "stage_before": "initial_round",
+            "stage_after": refreshed_case.stage,
+            "debate_round_count": refreshed_case.debate_round_count,
+            "data": result,
+        }
 
+    if stage == "debate":
+        result = await debate_round(
+            case_id=case_id,
+            model=model,
+            db=db,
+        )
 
-@router.post("/ophthalmology_knowledge_base")
-async def ophthalmology_knowledge_base(
-    case_id: str = Form(...),
-    text: str = Form(...),
-    db: Session = Depends(get_db)
-):
-    case = db.query(Case).filter(Case.case_id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+        refreshed_case = db.query(Case).filter(Case.case_id == case_id).first()
+        refreshed_case.debate_round_count += 1
+        db.commit()
+        db.refresh(refreshed_case)
 
-    logger.info(f"Case {case_id} Ophthalmology Knowledge Base")
+        return {
+            "case_id": case_id,
+            "stage_before": "debate",
+            "stage_after": refreshed_case.stage,
+            "debate_round_count": refreshed_case.debate_round_count,
+            "data": result,
+        }
 
-    try:
-        result = call_rag("ophthalmology_knowledge_base", text, case_id)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if stage == "specialists_follow_up":
+        check_flag = _resolve_specialist_check_flag(case, db)
+
+        if not answer:
+            specialist_table = _get_specialist_table_by_name(check_flag) if check_flag else None
+            latest = None
+
+            if specialist_table:
+                latest = (
+                    db.query(specialist_table)
+                    .filter(specialist_table.case_id == case_id)
+                    .order_by(specialist_table.timestamp.desc())
+                    .first()
+                )
+
+            next_question = latest.pending_questions[0] if latest and latest.pending_questions else None
+
+            return {
+                "case_id": case.case_id,
+                "stage": stage,
+                "message": "Patient answer required for specialist follow-up.",
+                "check_flag": check_flag,
+                "next_followup": next_question,
+            }
+
+        if not check_flag:
+            raise HTTPException(
+                status_code=500,
+                detail="Could not infer specialist follow-up owner"
+            )
+
+        return await specialists_answer_followup(
+            case_id=case_id,
+            answer=answer,
+            db=db,
+            check_flag=check_flag,
+        )
+
+    if stage == "improved_diagnosis":
+        result = await specialists_improved_diagnosis(
+            case_id=case_id,
+            model=model,
+            db=db,
+        )
+
+        refreshed_case = db.query(Case).filter(Case.case_id == case_id).first()
+        return {
+            "case_id": case_id,
+            "stage_before": "improved_diagnosis",
+            "stage_after": refreshed_case.stage,
+            "debate_round_count": refreshed_case.debate_round_count,
+            "data": result,
+        }
+
+    if stage == "choice":
+        if case.debate_round_count < MAX_DEBATE_ROUNDS:
+            db.query(Case).filter(Case.case_id == case_id).update(
+                {Case.stage: "debate"},
+                synchronize_session=False,
+            )
+            db.commit()
+
+            result = await debate_round(
+                case_id=case_id,
+                model=model,
+                db=db,
+            )
+
+            refreshed_case = db.query(Case).filter(Case.case_id == case_id).first()
+            refreshed_case.debate_round_count += 1
+            db.commit()
+            db.refresh(refreshed_case)
+
+            return {
+                "case_id": case_id,
+                "decision": "loop_back_to_debate",
+                "debate_round_count": refreshed_case.debate_round_count,
+                "stage_after": refreshed_case.stage,
+                "data": result,
+            }
+
+        consensus_result = await determine_consensus_winner(
+            case_id=case_id,
+            model=model,
+            db=db,
+        )
+
+        db.query(Case).filter(Case.case_id == case_id).update(
+            {
+                Case.consensus_winner: consensus_result,
+                Case.stage: "transfer_control",
+            },
+            synchronize_session=False,
+        )
+        db.commit()
+
+        refreshed_case = db.query(Case).filter(Case.case_id == case_id).first()
+
+        return {
+            "case_id": case_id,
+            "decision": "move_to_consensus",
+            "debate_round_count": refreshed_case.debate_round_count,
+            "stage_after": refreshed_case.stage,
+            "data": consensus_result,
+        }
+
+    if stage == "transfer_control":
+        resolved_chat_type = 0 if chat_type is None else chat_type
+
+        if resolved_chat_type == 0:
+            winner_data = case.consensus_winner or {}
+
+            if not winner_data:
+                winner_data = await determine_consensus_winner(
+                    case_id=case_id,
+                    model=model,
+                    db=db,
+                )
+
+                db.query(Case).filter(Case.case_id == case_id).update(
+                    {Case.consensus_winner: winner_data},
+                    synchronize_session=False,
+                )
+                db.commit()
+
+            winner_name = winner_data.get("winner") if isinstance(winner_data, dict) else None
+            if not winner_name:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Consensus winner not available for transfer_control stage"
+                )
+            result = await chat_with_agent(
+                case_id=case_id,
+                model=model,
+                agent_name=winner_name,
+                chat_type=0,
+                user_message=None,
+                consensus_data_json=consensus_data_json,
+                db=db,
+            )
+            refreshed_case = db.query(Case).filter(Case.case_id == case_id).first()
+
+            previous_text=refreshed_case.consensus_winner
+            diagnosis=previous_text.get("diagnosis")
+            explanation=previous_text.get("explanation")
+
+            message = result.get("message")
+            winner = result.get("agent_name")
+
+            refreshed_case.consensus_winner = {"winner": winner, "message":message, "diagnosis":diagnosis, "explanation":explanation}
+            refreshed_case.stage = "completed"
+            db.commit()
+            return result
+
+        if resolved_chat_type == 1:
+            if not agent_name:
+                winner_data = case.consensus_winner or {}
+                if isinstance(winner_data, dict):
+                    agent_name = winner_data.get("winner")
+
+            if not agent_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="agent_name is required for chat_type=1"
+                )
+
+            if not user_message:
+                raise HTTPException(
+                    status_code=400,
+                    detail="user_message is required for chat_type=1"
+                )
+
+            return await chat_with_agent(
+                case_id=case_id,
+                model=model,
+                agent_name=agent_name,
+                chat_type=1,
+                user_message=user_message,
+                consensus_data_json=consensus_data_json,
+                db=db,
+            )
+
+        raise HTTPException(status_code=400, detail="Invalid chat_type")
+
+    if stage == "completed":
+        return {
+            "case_id": case.case_id,
+            "stage": stage,
+            "message": "Case already completed.",
+            "consensus_winner": case.consensus_winner,
+        }
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported stage '{stage}'"
+    )
 
 # -----------------------------
 # Shutdown Hook

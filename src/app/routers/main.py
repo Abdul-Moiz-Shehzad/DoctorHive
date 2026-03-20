@@ -8,6 +8,7 @@ from typing import Optional, List
 
 from fastapi.responses import RedirectResponse
 from src.app.routers.agents import GP
+from src.app.routers import structures
 from src.app.routers import orchestrator
 from src.utils import heartbeat
 from src.app.config import UPLOAD_FOLDER
@@ -33,9 +34,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-app.include_router(GP.router, tags=["General Physician"])
 app.include_router(orchestrator.router, tags=["orchestrator"])
+app.include_router(structures.router, tags=["structures"])
 app.include_router(heartbeat.router, tags=["heartbeat"])
 
 @app.get("/")

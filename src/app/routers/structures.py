@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from typing import Any, Dict
+from utils.rag_helper import call_rag
 from src.app.routers.agents.cardiologist import run_cardiological_debate, run_cardiological_diagnosis, run_cardiological_improved_diagnosis
 from src.app.routers.agents.ophthalmologist import run_ophthalmological_debate, run_ophthalmological_diagnosis, run_ophthalmological_improved_diagnosis
 from fastapi import APIRouter, Body, FastAPI, Form, Depends, HTTPException
@@ -82,7 +83,7 @@ async def initial_round(
         db.commit()
         db.refresh(ophthal_entry)
     db.query(Case).filter(Case.case_id == case_id).update(
-        {Case.stage: "first_debate"}, synchronize_session=False
+        {Case.stage: "debate"}, synchronize_session=False
     )
     db.commit()
     return {
@@ -280,7 +281,11 @@ async def debate_round(
         neuro_entry = NeurologistHistory(
             case_id=case_id,
             user_input=neurologist_debate_prompt,
-            agent_response=neurologist_response_after_debate.model_dump(),
+            agent_response = (
+            neurologist_response_after_debate.model_dump()
+                                if hasattr(neurologist_response_after_debate, "model_dump")
+                                else neurologist_response_after_debate
+                            ),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -292,7 +297,11 @@ async def debate_round(
         cardio_entry = CardiologistHistory(
             case_id=case_id,
             user_input=cardiologist_debate_prompt,
-            agent_response=cardiologist_response_after_debate.model_dump(),
+            agent_response = (
+            cardiologist_response_after_debate.model_dump()
+                                if hasattr(cardiologist_response_after_debate, "model_dump")
+                                else cardiologist_response_after_debate
+                            ),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -305,7 +314,11 @@ async def debate_round(
         ophthal_entry = OphthalmologistHistory(
             case_id=case_id,
             user_input=ophthalmologist_debate_prompt,
-            agent_response=ophthalmologist_response_after_debate.model_dump(),
+            agent_response = (
+            ophthalmologist_response_after_debate.model_dump()
+                                if hasattr(ophthalmologist_response_after_debate, "model_dump")
+                                else ophthalmologist_response_after_debate
+                            ),
             answered_followups=[],
             pending_questions=common_follow_ups,
             timestamp=datetime.utcnow(),
@@ -315,7 +328,7 @@ async def debate_round(
         db.refresh(ophthal_entry)
     if common_follow_ups:
         db.query(Case).filter(Case.case_id == case_id).update(
-            {Case.stage: "follow_up_specialist"}, synchronize_session=False
+            {Case.stage: "specialists_follow_up"}, synchronize_session=False
         )
         db.commit()
     else:
@@ -381,7 +394,7 @@ async def answer_followup(
 
         return FollowUpResponseSpecialists(
             case_id=specialists_table.case_id,
-            stage="completed",
+            stage="improved_diagnosis", #check flag
             message="No pending follow-up questions.",
             next_followup=None,
             answered_followups=specialists_table.answered_followups
@@ -403,7 +416,7 @@ async def answer_followup(
 
         return FollowUpResponseSpecialists(
             case_id=specialists_table.case_id,
-            stage="follow_up",
+            stage="specialists_follow_up",
             message="Answer recorded.",
             next_followup=next_question,
             answered_followups=specialists_table.answered_followups
@@ -411,12 +424,14 @@ async def answer_followup(
     else:
         next_action_message = "All follow-up questions answered. Case completed."
 
+        db.query(Case).filter(Case.case_id == case_id).update(
+            {Case.stage: "improved_diagnosis"}, synchronize_session=False
+        )
         db.commit()
         db.refresh(specialists_table)
-
         return FollowUpResponseSpecialists(
             case_id=specialists_table.case_id,
-            stage="debate",
+            stage="improved_diagnosis",
             message=next_action_message,
             next_followup=None,
             answered_followups=specialists_table.answered_followups
@@ -543,7 +558,7 @@ async def specialists_improved_diagnosis(
         raise HTTPException(status_code=500, detail="Error running improved diagnosis")
 
     db.query(Case).filter(Case.case_id == case_id).update(
-        {Case.stage: "second_debate"}, synchronize_session=False
+        {Case.stage: "choice"}, synchronize_session=False
     )
     db.commit()
 
@@ -661,7 +676,10 @@ Specialists responses:
         
         if not parsed_result.get("winner") or not parsed_result.get("diagnosis"):
              raise ValueError("Parsed output missing winner or diagnosis fields.")
-        
+        db.query(Case).filter(Case.case_id == case_id).update(
+            {Case.stage: "transfer_control"}, synchronize_session=False
+        )
+        db.commit()
         return parsed_result
 
     except Exception as e:
@@ -835,7 +853,9 @@ async def chat_with_agent(
         except Exception as e:
             logger.error(f"LLM recommendation error for case {case_id}: {e}")
             raise HTTPException(status_code=500, detail="LLM recommendation backend error.")
-
+        db.query(Case).filter(Case.case_id == case_id).update(
+            {Case.stage: "completed"}, synchronize_session=False
+        )
         return {
             "case_id": case_id,
             "agent_name": winner,
@@ -844,6 +864,62 @@ async def chat_with_agent(
         }
 
     raise HTTPException(status_code=400, detail="Invalid `chat_type` flag. Must be 0 (Recommendation) or 1 (Chat/Assistance).")
+
+@router.post("/neurology_knowledge_base")
+async def neurology_knowledge_base(
+    case_id: str = Form(...),
+    text: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    logger.info(f"Case {case_id} Neurology Knowledge Base")
+
+    try:
+        result = call_rag("neurology_knowledge_base", text, case_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cardiology_knowledge_base")
+async def cardiology_knowledge_base(
+    case_id: str = Form(...),
+    text: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    logger.info(f"Case {case_id} Cardiology Knowledge Base")
+
+    try:
+        result = call_rag("cardiology_knowledge_base", text, case_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ophthalmology_knowledge_base")
+async def ophthalmology_knowledge_base(
+    case_id: str = Form(...),
+    text: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    logger.info(f"Case {case_id} Ophthalmology Knowledge Base")
+
+    try:
+        result = call_rag("ophthalmology_knowledge_base", text, case_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 app.include_router(router)

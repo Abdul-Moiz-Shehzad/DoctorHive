@@ -69,6 +69,7 @@ class Case(Base):
     files_content = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)
     consensus_winner = Column(JSONB, default=dict)
+    debate_round_count = Column(Integer, default=0)
 
 class Specialized_Agents_Diagnosis_Response(BaseModel):
     """Response for the Specialized agents diagnosis."""
