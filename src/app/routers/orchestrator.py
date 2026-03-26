@@ -3,7 +3,9 @@ import logging
 import os
 import shutil
 import sys
+import json
 import uuid
+from fastapi.encoders import jsonable_encoder
 from src.app.routers.structures import debate_round, initial_round, specialists_improved_diagnosis, determine_consensus_winner
 from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile, Depends
 from typing import Optional, List
@@ -456,7 +458,7 @@ async def answer_specialist_followup(
     return FollowUpResponseSpecialists(
         case_id=case_id,
         stage="completed",
-        message=str({"improved_diagnosis": improved, "consensus": consensus}),
+        message=json.dumps(jsonable_encoder({"improved_diagnosis": improved, "consensus": consensus})),
         next_followup=None,
         answered_followups=answered,
     )

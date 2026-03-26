@@ -1,29 +1,17 @@
 export type BackendModel = "gpt" | "gemini";
 
-export type InitialOrchestratorResponse = {
-  case_id: string;
-  stage: string;
-  gp_response: string;
-  next_followup: string | null;
-  answered_followups: Array<{ question: string; answer: string }>;
-  specialists_required: string[] | null;
-};
-
-export type FollowUpResponse = {
-  case_id: string;
-  stage: string;
-  message: string;
-  next_followup: string | null;
-  answered_followups: Array<{ question: string; answer: string }>;
-  specialists_required: string[] | null;
-};
-
-export type SpecialistFollowUpState = {
-  case_id: string;
-  stage: string;
-  message: string | null;
-  next_followup: string | null;
-  answered_followups: Array<{ question: string; answer: string }>;
+export type DoctorHiveResponse = {
+  case_id?: string;
+  stage?: string;
+  stage_after?: string;
+  message?: string | null;
+  gp_response?: string;
+  next_followup?: string | null;
+  answered_followups?: Array<{ question: string; answer: string }>;
+  specialists_required?: string[] | null;
+  data?: any;
+  decision?: string;
+  consensus_winner?: any;
 };
 
 function normalizeBaseUrl(x: string) {
@@ -80,79 +68,36 @@ async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function processCase(params: {
-  message: string;
+export async function postDoctorHive(params: {
   model: BackendModel;
-  caseId?: string;
+  caseId?: string | null;
+  message?: string;
+  answer?: string;
   files?: File[];
-}): Promise<InitialOrchestratorResponse> {
+  agent_name?: string;
+  chat_type?: number;
+  user_message?: string;
+  consensus_data_json?: string;
+}): Promise<DoctorHiveResponse> {
   const fd = new FormData();
-  fd.append("message", params.message);
   fd.append("model", params.model);
+  
   if (params.caseId) fd.append("case_id", params.caseId);
-  for (const f of params.files ?? []) fd.append("files", f);
+  if (params.message) fd.append("message", params.message);
+  if (params.answer) fd.append("answer", params.answer);
+  if (params.agent_name) fd.append("agent_name", params.agent_name);
+  if (params.chat_type !== undefined) fd.append("chat_type", String(params.chat_type));
+  if (params.user_message) fd.append("user_message", params.user_message);
+  if (params.consensus_data_json) fd.append("consensus_data_json", params.consensus_data_json);
 
-  const res = await fetchOrThrow(url("/orchestrator/process"), {
+  for (const f of params.files ?? []) {
+    fd.append("files", f);
+  }
+
+  const res = await fetchOrThrow(url("/orchestrator/doctorhive"), {
     method: "POST",
     body: fd
   });
 
-  return await parseJsonOrThrow<InitialOrchestratorResponse>(res);
+  return await parseJsonOrThrow<DoctorHiveResponse>(res);
 }
-
-export async function answerFollowup(params: {
-  caseId: string;
-  answer: string;
-}): Promise<FollowUpResponse> {
-  const fd = new FormData();
-  fd.append("case_id", params.caseId);
-  fd.append("answer", params.answer);
-
-  const res = await fetchOrThrow(url("/orchestrator/answer_followup"), {
-    method: "POST",
-    body: fd
-  });
-
-  return await parseJsonOrThrow<FollowUpResponse>(res);
-}
-
-export async function runSpecialistRounds(params: {
-  caseId: string;
-  model: BackendModel;
-}): Promise<unknown> {
-  const fd = new FormData();
-  fd.append("case_id", params.caseId);
-  fd.append("model", params.model);
-
-  const res = await fetchOrThrow(url("/orchestrator/specialist_rounds"), {
-    method: "POST",
-    body: fd
-  });
-
-  return await parseJsonOrThrow<unknown>(res);
-}
-
-export async function getSpecialistFollowupState(params: {
-  caseId: string;
-}): Promise<SpecialistFollowUpState> {
-  const res = await fetchOrThrow(url(`/orchestrator/get_specialist_followup_state/${params.caseId}`), {
-    method: "GET"
-  });
-  return await parseJsonOrThrow<SpecialistFollowUpState>(res);
-}
-
-export async function answerSpecialistFollowup(params: {
-  caseId: string;
-  answer: string;
-}): Promise<SpecialistFollowUpState> {
-  const fd = new FormData();
-  fd.append("case_id", params.caseId);
-  fd.append("answer", params.answer);
-
-  const res = await fetchOrThrow(url("/orchestrator/answer_specialist_followup"), {
-    method: "POST",
-    body: fd
-  });
-  return await parseJsonOrThrow<SpecialistFollowUpState>(res);
-}
-
