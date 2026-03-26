@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { postDoctorHive, type BackendModel, type DoctorHiveResponse } from "../api";
-import { PlusCircle, Send, UploadCloud, Stethoscope, FileSearch } from "lucide-react";
+import { PlusCircle, Send, UploadCloud, Stethoscope, FileSearch, Terminal } from "lucide-react";
 
 const MarkdownText = ({ text }: { text: string }) => {
   if (!text) return null;
@@ -39,6 +39,9 @@ export default function Consultation() {
   const [followupAnswer, setFollowupAnswer] = useState("");
   const [ui, setUi] = useState<UiState>({ kind: "idle" });
 
+  const [xaiEnabled, setXaiEnabled] = useState(false);
+  const [xaiLogs, setXaiLogs] = useState<any[]>([]);
+
   // In the unified endpoint, next_followup handles both GP and Specialists
   const nextQuestion = orchestrator?.next_followup ?? null;
   const specialists = orchestrator?.specialists_required ?? null;
@@ -61,6 +64,7 @@ export default function Consultation() {
     setMessage("");
     setFiles([]);
     setFollowupAnswer("");
+    setXaiLogs([]);
     setUi({ kind: "idle" });
   }
 
@@ -109,6 +113,17 @@ export default function Consultation() {
            answered_followups: res.answered_followups || prev?.answered_followups || [],
            specialists_required: res.specialists_required || prev?.specialists_required || [],
         }));
+
+        // Intercept AI reasoning logs if present
+        if (res.data?.responses) {
+            setXaiLogs(prev => {
+                const updated = [...prev, { stage: stage, responses: res.data.responses }];
+                if (newCaseId) {
+                   localStorage.setItem(`xai_${newCaseId}`, JSON.stringify(updated));
+                }
+                return updated;
+            });
+        }
 
         // STOP CONDITIONS: Stages that require physical User Input
         if (stage === "general_follow_up" || stage === "specialists_follow_up") {
@@ -185,7 +200,17 @@ export default function Consultation() {
             {caseId ? <><span className="mono">{caseId}</span> &bull; Stage: <span style={{ textTransform: 'capitalize' }}>{stageBadge.replace(/_/g, " ")}</span></> : "New Session"}
           </div>
         </div>
-        <div className="right">
+        <div className="right" style={{ display: 'flex', gap: '12px' }}>
+          <button 
+             className={xaiEnabled ? "" : "secondary"} 
+             onClick={() => setXaiEnabled(!xaiEnabled)} 
+             disabled={ui.kind === "loading"}
+             title="Toggle Explainable AI Reasoning"
+             style={xaiEnabled ? { background: '#10b981', color: '#fff', border: 'none' } : {}}
+          >
+            <Terminal size={18} />
+             XAI Mode {xaiEnabled ? "ON" : "OFF"}
+          </button>
           <button className="secondary" onClick={onReset} disabled={ui.kind === "loading"}>
             <PlusCircle size={18} />
             New Patient
@@ -271,6 +296,39 @@ export default function Consultation() {
             ) : (
                <div className="empty-state">
                   Awaiting intake submission...
+               </div>
+            )}
+
+            {xaiEnabled && xaiLogs.length > 0 && (
+               <div className="timeline-event xai" style={{ marginTop: '24px' }}>
+                 <div className="event-badge" style={{ background: '#10b981', color: 'white' }}>XAI</div>
+                 <div className="event-content" style={{ background: '#0f172a', border: '1px solid #1e293b', padding: '16px', borderRadius: '12px', color: '#38bdf8' }}>
+                    <div className="smallTitle" style={{ color: '#10b981', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Terminal size={16} /> Live AI Reasoning Subsystem
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                       {xaiLogs.map((log, idx) => (
+                          <div key={idx} style={{ background: '#1e293b', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #38bdf8' }}>
+                             <div className="mono" style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '8px', textTransform: 'uppercase' }}>PHASE: {log.stage}</div>
+                             {Object.entries(log.responses).filter(([_, val]) => val !== null).map(([agent, data]: [string, any]) => (
+                                <div key={agent} style={{ marginTop: '8px' }}>
+                                   <div style={{ color: '#e2e8f0', fontWeight: 600, textTransform: 'capitalize' }}>{agent}</div>
+                                   {typeof data === 'string' ? (
+                                      <div style={{ fontSize: '0.9rem', color: '#cbd5e1', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{data}</div>
+                                   ) : (
+                                      <div style={{ fontSize: '0.9rem', color: '#cbd5e1', marginTop: '4px' }}>
+                                         {data.diagnosis && <div><span style={{color: '#94a3b8'}}>Diagnosis:</span> {data.diagnosis}</div>}
+                                         {data.confidence !== undefined && <div><span style={{color: '#94a3b8'}}>Confidence:</span> {data.confidence}%</div>}
+                                         {(data.explanation || data.reasoning) && <div style={{marginTop: '4px', whiteSpace: 'pre-wrap'}}><span style={{color: '#94a3b8'}}>Reasoning:</span> {data.explanation || data.reasoning}</div>}
+                                         {!data.diagnosis && !data.explanation && !data.reasoning && <div>{JSON.stringify(data)}</div>}
+                                      </div>
+                                   )}
+                                </div>
+                             ))}
+                          </div>
+                       ))}
+                    </div>
+                 </div>
                </div>
             )}
 

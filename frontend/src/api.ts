@@ -15,6 +15,16 @@ export type DoctorHiveResponse = {
   agent_name?: string;
 };
 
+export type CaseHistory = {
+  case_id: string;
+  user_message: string;
+  stage: string;
+  timestamp: string;
+  specialists_required: string[] | null;
+  consensus_winner: any;
+  answered_followups: Array<{ question: string; answer: string }>;
+};
+
 function normalizeBaseUrl(x: string) {
   return x.replace(/\/+$/, "");
 }
@@ -101,4 +111,18 @@ export async function postDoctorHive(params: {
   });
 
   return await parseJsonOrThrow<DoctorHiveResponse>(res);
+}
+
+export async function fetchAllCases(): Promise<CaseHistory[]> {
+  const res = await fetchOrThrow(url("/orchestrator/cases"), {
+    method: "GET"
+  });
+  return await parseJsonOrThrow<CaseHistory[]>(res);
+}
+
+export async function deleteCase(caseId: string): Promise<{message: string}> {
+  const res = await fetchOrThrow(url(`/orchestrator/cases/${caseId}`), {
+    method: "DELETE"
+  });
+  return await parseJsonOrThrow<{message: string}>(res);
 }
