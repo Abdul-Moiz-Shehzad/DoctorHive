@@ -12,6 +12,7 @@ export type DoctorHiveResponse = {
   data?: any;
   decision?: string;
   consensus_winner?: any;
+  agent_name?: string;
 };
 
 function normalizeBaseUrl(x: string) {

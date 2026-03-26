@@ -2,6 +2,21 @@ import React, { useMemo, useState } from "react";
 import { postDoctorHive, type BackendModel, type DoctorHiveResponse } from "../api";
 import { PlusCircle, Send, UploadCloud, Stethoscope, FileSearch } from "lucide-react";
 
+const MarkdownText = ({ text }: { text: string }) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|\n)/g);
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>;
+        if (p.startsWith('*') && p.endsWith('*')) return <em key={i}>{p.slice(1, -1)}</em>;
+        if (p === '\n') return <br key={i} />;
+        return <span key={i}>{p}</span>;
+      })}
+    </>
+  );
+};
+
 type UiState =
   | { kind: "idle" }
   | { kind: "loading"; label: string }
@@ -97,6 +112,13 @@ export default function Consultation() {
 
         // STOP CONDITIONS: Stages that require physical User Input
         if (stage === "general_follow_up" || stage === "specialists_follow_up") {
+           // BUGFIX: If the AI failed to generate an actual follow-up question here, auto-skip the stage!
+           if (!res.next_followup || res.next_followup.trim() === "") {
+               setUi({ kind: "loading", label: "Advancing past empty follow-up..." });
+               currentParams = { caseId: newCaseId!, model, answer: "skip" };
+               continue;
+           }
+
            setUi({ kind: "ready" });
            break;
         }
@@ -237,12 +259,12 @@ export default function Consultation() {
           </div>
 
           <div className="timeline-container">
-            {orchestrator ? (
+             {orchestrator ? (
                <div className="timeline-event">
                  <div className="event-badge">GP</div>
                  <div className="event-content">
-                    <pre className="pre" style={{ margin: 0 }}>
-                      {orchestrator.gp_response?.trim() ? orchestrator.gp_response : "System evaluating patient data..."}
+                    <pre className="pre" style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                      {orchestrator.gp_response?.trim() ? <MarkdownText text={orchestrator.gp_response} /> : "System evaluating patient data..."}
                     </pre>
                  </div>
                </div>
@@ -304,7 +326,7 @@ export default function Consultation() {
                            Recommendation from: {(specialistResult as any).agent_name}
                          </h4>
                          <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--foreground)' }}>
-                           {String((specialistResult as any).message)}
+                           <MarkdownText text={String((specialistResult as any).message)} />
                          </div>
                       </div>
                     )}
@@ -316,7 +338,7 @@ export default function Consultation() {
                            Final Report: {(specialistResult as any).winner}
                          </h4>
                          <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--foreground)' }}>
-                           {String((specialistResult as any).message)}
+                           <MarkdownText text={String((specialistResult as any).message)} />
                          </div>
                       </div>
                     )}
@@ -330,7 +352,7 @@ export default function Consultation() {
                            <div><strong>Final Diagnosis:</strong> {(specialistResult as any).consensus.diagnosis}</div>
                            <div style={{ marginTop: '8px', lineHeight: 1.5 }}>
                              <strong>Clinical Rationale:</strong><br/>
-                             {(specialistResult as any).consensus.explanation}
+                             <MarkdownText text={(specialistResult as any).consensus.explanation} />
                            </div>
                          </div>
                       </div>
@@ -350,7 +372,7 @@ export default function Consultation() {
                                    <span style={{ color: 'var(--accent-2)' }}>Confidence: {sd.confidence}%</span>
                                  </div>
                                  <div style={{ color: 'var(--accent-1)', marginBottom: '4px' }}><strong>Diagnosis:</strong> {sd.diagnosis}</div>
-                                 <div style={{ fontSize: '0.95rem', lineHeight: 1.5 }}>{sd.explanation}</div>
+                                 <div style={{ fontSize: '0.95rem', lineHeight: 1.5 }}><MarkdownText text={sd.explanation} /></div>
                                </div>
                              );
                            })}
@@ -360,7 +382,9 @@ export default function Consultation() {
 
                     {/* Raw string fallback */}
                     {typeof specialistResult === 'string' && (
-                        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{specialistResult}</div>
+                        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                          <MarkdownText text={String(specialistResult)} />
+                        </div>
                     )}
 
                  </div>
