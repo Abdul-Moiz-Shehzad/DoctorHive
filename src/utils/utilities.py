@@ -4,7 +4,7 @@ import time
 import logging
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
-from src.app.config import OPENAI_API_KEY, GOOGLE_API_KEY
+from src.app.config import OPENAI_API_KEY, GOOGLE_API_KEY, GOOGLE_API_KEY_second, GOOGLE_API_KEY_third
 logger = logging.getLogger(__name__)
 
 def parse_specialist_response(text: str) -> dict:
@@ -118,11 +118,20 @@ def get_db():
 def get_llm(backend: str = "gemini"):
     if backend == "gpt":
         logger.info("Agent used GPT")
-        #raise ValueError("I wont burn my money just yet")
         return ChatOpenAI(model="gpt-5", temperature=1, api_key=OPENAI_API_KEY)
+    
     elif backend == "gemini":
-        logger.info("Agent used Gemini")
-        #time.sleep(60)
-        return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY)
+        logger.info("Agent used Gemini with fallback rotation")
+        
+        # Define your different instances
+        primary = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY)
+        secondary = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY_second)
+        third = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY_third)
+        
+        # Create a chain that automatically falls back on ResourceExhausted errors
+        llm_with_fallbacks = primary.with_fallbacks([secondary, third])
+        
+        return llm_with_fallbacks
+
     else:
         raise ValueError("Unsupported backend. Use 'gpt' or 'gemini'.")
