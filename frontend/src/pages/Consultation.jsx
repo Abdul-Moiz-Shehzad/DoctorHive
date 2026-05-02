@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { postDoctorHive, type BackendModel, type DoctorHiveResponse } from "../api";
+import { postDoctorHive } from "../api";
 import { PlusCircle, Send, UploadCloud, Stethoscope, FileSearch, Terminal } from "lucide-react";
 
-const MarkdownText = ({ text }: { text: string }) => {
+const MarkdownText = ({ text }) => {
   if (!text) return null;
   const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|\n)/g);
   return (
@@ -13,34 +13,34 @@ const MarkdownText = ({ text }: { text: string }) => {
         if (p === '\n') return <br key={i} />;
         return <span key={i}>{p}</span>;
       })}
-    </>
-  );
+    </>);
+
 };
 
-type UiState =
-  | { kind: "idle" }
-  | { kind: "loading"; label: string }
-  | { kind: "error"; message: string }
-  | { kind: "ready" };
 
-function prettyJson(x: unknown) {
+
+
+
+
+
+function prettyJson(x) {
   return JSON.stringify(x, null, 2);
 }
 
 export default function Consultation() {
-  const [model, setModel] = useState<BackendModel>("gpt");
+  const [model, setModel] = useState("gpt");
   const [message, setMessage] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState([]);
 
-  const [caseId, setCaseId] = useState<string | null>(null);
-  const [orchestrator, setOrchestrator] = useState<DoctorHiveResponse | null>(null);
-  const [specialistResult, setSpecialistResult] = useState<unknown>(null);
+  const [caseId, setCaseId] = useState(null);
+  const [orchestrator, setOrchestrator] = useState(null);
+  const [specialistResult, setSpecialistResult] = useState(null);
 
   const [followupAnswer, setFollowupAnswer] = useState("");
-  const [ui, setUi] = useState<UiState>({ kind: "idle" });
+  const [ui, setUi] = useState({ kind: "idle" });
 
   const [xaiEnabled, setXaiEnabled] = useState(false);
-  const [xaiLogs, setXaiLogs] = useState<any[]>([]);
+  const [xaiLogs, setXaiLogs] = useState([]);
 
   // In the unified endpoint, next_followup handles both GP and Specialists
   const nextQuestion = orchestrator?.next_followup ?? null;
@@ -48,10 +48,10 @@ export default function Consultation() {
 
   const canSubmit = message.trim().length > 0 && ui.kind !== "loading";
   const canAnswer =
-    !!caseId &&
-    !!nextQuestion &&
-    followupAnswer.trim().length > 0 &&
-    ui.kind !== "loading";
+  !!caseId &&
+  !!nextQuestion &&
+  followupAnswer.trim().length > 0 &&
+  ui.kind !== "loading";
 
   const stageBadge = useMemo(() => {
     return orchestrator?.stage ?? orchestrator?.stage_after ?? "Intake";
@@ -72,17 +72,17 @@ export default function Consultation() {
    * Recursive loop that drives the backend state machine forward until 
    * a user action (question answer) is required or the case completes.
    */
-  async function runOrchestratorLoop(initialParams: Parameters<typeof postDoctorHive>[0]) {
+  async function runOrchestratorLoop(initialParams) {
     try {
       let currentParams = initialParams;
-      
+
       while (true) {
         const res = await postDoctorHive(currentParams);
-        
+
         // Track the current active Case ID
         const newCaseId = res.case_id || currentParams.caseId || caseId;
         if (newCaseId && newCaseId !== caseId) {
-           setCaseId(newCaseId);
+          setCaseId(newCaseId);
         }
 
         const stage = res.stage_after || res.stage;
@@ -90,72 +90,72 @@ export default function Consultation() {
         // If stage is completely missing, it might be the final recommendation payload 
         // returned directly from chat_with_agent at the very end of transfer_control.
         if (!stage) {
-            if (res.agent_name && res.message) {
-               setSpecialistResult(res);
-               setOrchestrator(prev => prev ? { ...prev, stage: "completed", next_followup: null } : null);
-               setUi({ kind: "ready" });
-               break;
-            } else {
-               // Unknown generic payload, stop looping to be safe
-               setUi({ kind: "ready" });
-               break;
-            }
+          if (res.agent_name && res.message) {
+            setSpecialistResult(res);
+            setOrchestrator((prev) => prev ? { ...prev, stage: "completed", next_followup: null } : null);
+            setUi({ kind: "ready" });
+            break;
+          } else {
+            // Unknown generic payload, stop looping to be safe
+            setUi({ kind: "ready" });
+            break;
+          }
         }
 
         // Update orchestrator state for the UI to display incrementally
-        setOrchestrator(prev => ({
-           case_id: newCaseId!,
-           stage: stage,
-           stage_after: res.stage_after,
-           message: res.message,
-           gp_response: res.gp_response || prev?.gp_response,
-           next_followup: res.next_followup || undefined,
-           answered_followups: res.answered_followups || prev?.answered_followups || [],
-           specialists_required: res.specialists_required || prev?.specialists_required || [],
+        setOrchestrator((prev) => ({
+          case_id: newCaseId,
+          stage: stage,
+          stage_after: res.stage_after,
+          message: res.message,
+          gp_response: res.gp_response || prev?.gp_response,
+          next_followup: res.next_followup || undefined,
+          answered_followups: res.answered_followups || prev?.answered_followups || [],
+          specialists_required: res.specialists_required || prev?.specialists_required || []
         }));
 
         // Intercept AI reasoning logs if present
         if (res.data?.responses) {
-            setXaiLogs(prev => {
-                const updated = [...prev, { stage: stage, responses: res.data.responses }];
-                if (newCaseId) {
-                   localStorage.setItem(`xai_${newCaseId}`, JSON.stringify(updated));
-                }
-                return updated;
-            });
+          setXaiLogs((prev) => {
+            const updated = [...prev, { stage: stage, responses: res.data.responses }];
+            if (newCaseId) {
+              localStorage.setItem(`xai_${newCaseId}`, JSON.stringify(updated));
+            }
+            return updated;
+          });
         }
 
         // STOP CONDITIONS: Stages that require physical User Input
         if (stage === "general_follow_up" || stage === "specialists_follow_up") {
-           // BUGFIX: If the AI failed to generate an actual follow-up question here, auto-skip the stage!
-           if (!res.next_followup || res.next_followup.trim() === "") {
-               setUi({ kind: "loading", label: "Advancing past empty follow-up..." });
-               currentParams = { caseId: newCaseId!, model, answer: "skip" };
-               continue;
-           }
+          // BUGFIX: If the AI failed to generate an actual follow-up question here, auto-skip the stage!
+          if (!res.next_followup || res.next_followup.trim() === "") {
+            setUi({ kind: "loading", label: "Advancing past empty follow-up..." });
+            currentParams = { caseId: newCaseId, model, answer: "skip" };
+            continue;
+          }
 
-           setUi({ kind: "ready" });
-           break;
+          setUi({ kind: "ready" });
+          break;
         }
 
         // STOP CONDITIONS: Case has naturally concluded or we hit an intended terminus
         if (stage === "completed" || stage === "direct_reply" || res.message === "Case already completed.") {
-           // We might receive the final structured object here
-           if (res.consensus_winner) {
-               setSpecialistResult(res.consensus_winner);
-           } else if (res.data && res.data.consensus) {
-               setSpecialistResult(res.data);
-           } else if (res.message && typeof res.message === "string" && res.message.startsWith("{")) {
-               try { setSpecialistResult(JSON.parse(res.message)); } catch { /* ignore */ }
-           }
-           setUi({ kind: "ready" });
-           break;
+          // We might receive the final structured object here
+          if (res.consensus_winner) {
+            setSpecialistResult(res.consensus_winner);
+          } else if (res.data && res.data.consensus) {
+            setSpecialistResult(res.data);
+          } else if (res.message && typeof res.message === "string" && res.message.startsWith("{")) {
+            try {setSpecialistResult(JSON.parse(res.message));} catch {/* ignore */}
+          }
+          setUi({ kind: "ready" });
+          break;
         }
 
         // LOOP CONDITION: Automated background stages
         // Examples: initial_round, debate, choice, improved_diagnosis, transfer_control
         setUi({ kind: "loading", label: `Running automated phase: ${stage.replace("_", " ")}...` });
-        
+
         // Recursively trigger the unified endpoint with just the caseId and model 
         // to advance the backend sequence automatically.
         currentParams = { caseId: newCaseId, model };
@@ -181,7 +181,7 @@ export default function Consultation() {
   async function onAnswerFollowup() {
     if (!caseId) return;
     setUi({ kind: "loading", label: "Transmitting response..." });
-    
+
     await runOrchestratorLoop({
       caseId,
       answer: followupAnswer,
@@ -201,13 +201,13 @@ export default function Consultation() {
           </div>
         </div>
         <div className="right" style={{ display: 'flex', gap: '12px' }}>
-          <button 
-             className={xaiEnabled ? "" : "secondary"} 
-             onClick={() => setXaiEnabled(!xaiEnabled)} 
-             disabled={ui.kind === "loading"}
-             title="Toggle Explainable AI Reasoning"
-             style={xaiEnabled ? { background: '#10b981', color: '#fff', border: 'none' } : {}}
-          >
+          <button
+            className={xaiEnabled ? "" : "secondary"}
+            onClick={() => setXaiEnabled(!xaiEnabled)}
+            disabled={ui.kind === "loading"}
+            title="Toggle Explainable AI Reasoning"
+            style={xaiEnabled ? { background: '#10b981', color: '#fff', border: 'none' } : {}}>
+            
             <Terminal size={18} />
              XAI Mode {xaiEnabled ? "ON" : "OFF"}
           </button>
@@ -229,9 +229,9 @@ export default function Consultation() {
             Intelligence Model
             <select
               value={model}
-              onChange={(e) => setModel(e.target.value as BackendModel)}
-              disabled={ui.kind === "loading"}
-            >
+              onChange={(e) => setModel(e.target.value)}
+              disabled={ui.kind === "loading"}>
+              
               <option value="gpt">OpenAI GPT-4o</option>
               <option value="gemini">Google Gemini Flash</option>
             </select>
@@ -244,8 +244,8 @@ export default function Consultation() {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Describe chief complaint, onset, severity, and relevant medical history..."
-              disabled={ui.kind === "loading"}
-            />
+              disabled={ui.kind === "loading"} />
+            
           </label>
 
           <label className="label">
@@ -257,13 +257,13 @@ export default function Consultation() {
               multiple
               accept=".pdf,.jpg,.jpeg,.png"
               disabled={ui.kind === "loading"}
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-            />
-            {files.length > 0 ? (
-              <div className="hint" style={{ color: 'var(--accent-1)' }}>{files.length} document(s) attached</div>
-            ) : (
-              <div className="hint">Supported: PDF, JPG, PNG</div>
-            )}
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+            
+            {files.length > 0 ?
+            <div className="hint" style={{ color: 'var(--accent-1)' }}>{files.length} document(s) attached</div> :
+
+            <div className="hint">Supported: PDF, JPG, PNG</div>
+            }
           </label>
 
           <div className="row mt-4">
@@ -284,93 +284,93 @@ export default function Consultation() {
           </div>
 
           <div className="timeline-container">
-             {orchestrator ? (
-               <div className="timeline-event">
+             {orchestrator ?
+            <div className="timeline-event">
                  <div className="event-badge">GP</div>
                  <div className="event-content">
                     <pre className="pre" style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
                       {orchestrator.gp_response?.trim() ? <MarkdownText text={orchestrator.gp_response} /> : "System evaluating patient data..."}
                     </pre>
                  </div>
-               </div>
-            ) : (
-               <div className="empty-state">
+               </div> :
+
+            <div className="empty-state">
                   Awaiting intake submission...
                </div>
-            )}
+            }
 
-            {xaiEnabled && xaiLogs.length > 0 && (
-               <div className="timeline-event xai" style={{ marginTop: '24px' }}>
+            {xaiEnabled && xaiLogs.length > 0 &&
+            <div className="timeline-event xai" style={{ marginTop: '24px' }}>
                  <div className="event-badge" style={{ background: '#10b981', color: 'white' }}>XAI</div>
                  <div className="event-content" style={{ background: '#0f172a', border: '1px solid #1e293b', padding: '16px', borderRadius: '12px', color: '#38bdf8' }}>
                     <div className="smallTitle" style={{ color: '#10b981', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Terminal size={16} /> Live AI Reasoning Subsystem
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                       {xaiLogs.map((log, idx) => (
-                          <div key={idx} style={{ background: '#1e293b', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #38bdf8' }}>
+                       {xaiLogs.map((log, idx) =>
+                  <div key={idx} style={{ background: '#1e293b', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #38bdf8' }}>
                              <div className="mono" style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '8px', textTransform: 'uppercase' }}>PHASE: {log.stage}</div>
-                             {Object.entries(log.responses).filter(([_, val]) => val !== null).map(([agent, data]: [string, any]) => (
-                                <div key={agent} style={{ marginTop: '8px' }}>
+                             {Object.entries(log.responses).filter(([_, val]) => val !== null).map(([agent, data]) =>
+                    <div key={agent} style={{ marginTop: '8px' }}>
                                    <div style={{ color: '#e2e8f0', fontWeight: 600, textTransform: 'capitalize' }}>{agent}</div>
-                                   {typeof data === 'string' ? (
-                                      <div style={{ fontSize: '0.9rem', color: '#cbd5e1', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{data}</div>
-                                   ) : (
-                                      <div style={{ fontSize: '0.9rem', color: '#cbd5e1', marginTop: '4px' }}>
-                                         {data.diagnosis && <div><span style={{color: '#94a3b8'}}>Diagnosis:</span> {data.diagnosis}</div>}
-                                         {data.confidence !== undefined && <div><span style={{color: '#94a3b8'}}>Confidence:</span> {data.confidence}%</div>}
-                                         {(data.explanation || data.reasoning) && <div style={{marginTop: '4px', whiteSpace: 'pre-wrap'}}><span style={{color: '#94a3b8'}}>Reasoning:</span> {data.explanation || data.reasoning}</div>}
+                                   {typeof data === 'string' ?
+                      <div style={{ fontSize: '0.9rem', color: '#cbd5e1', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{data}</div> :
+
+                      <div style={{ fontSize: '0.9rem', color: '#cbd5e1', marginTop: '4px' }}>
+                                         {data.diagnosis && <div><span style={{ color: '#94a3b8' }}>Diagnosis:</span> {data.diagnosis}</div>}
+                                         {data.confidence !== undefined && <div><span style={{ color: '#94a3b8' }}>Confidence:</span> {data.confidence}%</div>}
+                                         {(data.explanation || data.reasoning) && <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}><span style={{ color: '#94a3b8' }}>Reasoning:</span> {data.explanation || data.reasoning}</div>}
                                          {!data.diagnosis && !data.explanation && !data.reasoning && <div>{JSON.stringify(data)}</div>}
                                       </div>
-                                   )}
+                      }
                                 </div>
-                             ))}
+                    )}
                           </div>
-                       ))}
+                  )}
                     </div>
                  </div>
                </div>
-            )}
+            }
 
             {/* Unified User Input for any backend follow-up stage (GP or Specialists) */}
-            {nextQuestion && (
-               <div className="timeline-event follow-up" style={{ marginTop: '24px' }}>
+            {nextQuestion &&
+            <div className="timeline-event follow-up" style={{ marginTop: '24px' }}>
                  <div className="event-badge prompt">?</div>
                  <div className="event-content" style={{ background: 'rgba(168, 85, 247, 0.05)', border: '1px solid rgba(168, 85, 247, 0.2)', padding: '16px', borderRadius: '12px' }}>
                     <div className="smallTitle">Required Follow-up</div>
                     <div className="mono mb-4">{nextQuestion}</div>
                     
                     <input
-                      style={{ marginTop: '12px' }}
-                      value={followupAnswer}
-                      onChange={(e) => setFollowupAnswer(e.target.value)}
-                      placeholder="Enter patient's response..."
-                      disabled={ui.kind === "loading"}
-                    />
+                  style={{ marginTop: '12px' }}
+                  value={followupAnswer}
+                  onChange={(e) => setFollowupAnswer(e.target.value)}
+                  placeholder="Enter patient's response..."
+                  disabled={ui.kind === "loading"} />
+                
                     <button onClick={onAnswerFollowup} disabled={!canAnswer} style={{ marginTop: '12px', padding: '10px 16px', fontSize: '14px' }}>
                       Submit Answer
                     </button>
                  </div>
                </div>
-            )}
+            }
 
-            {Array.isArray(specialists) && specialists.length > 0 && !nextQuestion && (
-              <div className="timeline-event specialist" style={{ marginTop: '24px' }}>
+            {Array.isArray(specialists) && specialists.length > 0 && !nextQuestion &&
+            <div className="timeline-event specialist" style={{ marginTop: '24px' }}>
                  <div className="event-badge spec">★</div>
                  <div className="event-content">
                     <div className="smallTitle">Specialists Indicated</div>
                     <div className="flex gap-2 flex-wrap">
-                      {specialists.map(s => (
-                        <div key={s} className="chip"><span className="mono">{s}</span></div>
-                      ))}
+                      {specialists.map((s) =>
+                  <div key={s} className="chip"><span className="mono">{s}</span></div>
+                  )}
                     </div>
                  </div>
               </div>
-            )}
+            }
 
             {/* Fully Responsive Component handling ALL final returned forms of `specialistResult` */}
-            {specialistResult && (
-              <div className="timeline-event" style={{ marginTop: '24px' }}>
+            {specialistResult &&
+            <div className="timeline-event" style={{ marginTop: '24px' }}>
                  <div className="event-badge" style={{ background: 'var(--accent-1)', color: 'white' }}>✓</div>
                  <div className="event-content" style={{ background: "rgba(34, 197, 94, 0.08)", border: "1px solid rgba(34, 197, 94, 0.3)", padding: '20px', borderRadius: '12px' }}>
                     <div className="smallTitle text-accent" style={{ marginBottom: '16px', fontSize: '1.25rem', fontWeight: 600 }}>
@@ -378,76 +378,76 @@ export default function Consultation() {
                     </div>
 
                     {/* Direct Recommendation Payload */}
-                    {(specialistResult as any).role === "recommendation" && (
-                      <div style={{ marginBottom: '20px' }}>
+                    {specialistResult.role === "recommendation" &&
+                <div style={{ marginBottom: '20px' }}>
                          <h4 style={{ margin: '0 0 8px 0', color: 'var(--foreground)', fontSize: '1.1rem' }}>
-                           Recommendation from: {(specialistResult as any).agent_name}
+                           Recommendation from: {specialistResult.agent_name}
                          </h4>
                          <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--foreground)' }}>
-                           <MarkdownText text={String((specialistResult as any).message)} />
+                           <MarkdownText text={String(specialistResult.message)} />
                          </div>
                       </div>
-                    )}
+                }
                     
                     {/* Embedded Result Message if wrapped */}
-                    {!(specialistResult as any).consensus && (specialistResult as any).winner && (specialistResult as any).message && (
-                      <div style={{ marginBottom: '20px' }}>
+                    {!specialistResult.consensus && specialistResult.winner && specialistResult.message &&
+                <div style={{ marginBottom: '20px' }}>
                          <h4 style={{ margin: '0 0 8px 0', color: 'var(--foreground)', fontSize: '1.1rem' }}>
-                           Final Report: {(specialistResult as any).winner}
+                           Final Report: {specialistResult.winner}
                          </h4>
                          <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--foreground)' }}>
-                           <MarkdownText text={String((specialistResult as any).message)} />
+                           <MarkdownText text={String(specialistResult.message)} />
                          </div>
                       </div>
-                    )}
+                }
 
                     {/* Complex Consensus Object */}
-                    {(specialistResult as any).consensus && (
-                      <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                    {specialistResult.consensus &&
+                <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                          <h4 style={{ margin: '0 0 12px 0', color: 'var(--accent-1)' }}>Specialist Consensus Overview</h4>
                          <div style={{ display: 'grid', gap: '8px' }}>
-                           <div><strong>Lead Specialist:</strong> {(specialistResult as any).consensus.winner}</div>
-                           <div><strong>Final Diagnosis:</strong> {(specialistResult as any).consensus.diagnosis}</div>
+                           <div><strong>Lead Specialist:</strong> {specialistResult.consensus.winner}</div>
+                           <div><strong>Final Diagnosis:</strong> {specialistResult.consensus.diagnosis}</div>
                            <div style={{ marginTop: '8px', lineHeight: 1.5 }}>
-                             <strong>Clinical Rationale:</strong><br/>
-                             <MarkdownText text={(specialistResult as any).consensus.explanation} />
+                             <strong>Clinical Rationale:</strong><br />
+                             <MarkdownText text={specialistResult.consensus.explanation} />
                            </div>
                          </div>
                       </div>
-                    )}
+                }
 
                     {/* Complex Individual Breakdown */}
-                    {(specialistResult as any).improved_diagnosis?.results && (
-                      <div style={{ marginTop: '20px' }}>
+                    {specialistResult.improved_diagnosis?.results &&
+                <div style={{ marginTop: '20px' }}>
                          <h4 style={{ margin: '0 0 12px 0', color: 'var(--foreground)' }}>Specialist Breakdown</h4>
                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                           {Object.entries((specialistResult as any).improved_diagnosis.results).filter(([_, val]) => val !== null).map(([specialist, data]) => {
-                             const sd = data as any;
-                             return (
-                               <div key={specialist} style={{ padding: '12px', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}>
+                           {Object.entries(specialistResult.improved_diagnosis.results).filter(([_, val]) => val !== null).map(([specialist, data]) => {
+                      const sd = data;
+                      return (
+                        <div key={specialist} style={{ padding: '12px', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}>
                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                    <strong style={{ textTransform: 'capitalize' }}>{specialist}</strong>
                                    <span style={{ color: 'var(--accent-2)' }}>Confidence: {sd.confidence}%</span>
                                  </div>
                                  <div style={{ color: 'var(--accent-1)', marginBottom: '4px' }}><strong>Diagnosis:</strong> {sd.diagnosis}</div>
                                  <div style={{ fontSize: '0.95rem', lineHeight: 1.5 }}><MarkdownText text={sd.explanation} /></div>
-                               </div>
-                             );
-                           })}
+                               </div>);
+
+                    })}
                          </div>
                       </div>
-                    )}
+                }
 
                     {/* Raw string fallback */}
-                    {typeof specialistResult === 'string' && (
-                        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                    {typeof specialistResult === 'string' &&
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
                           <MarkdownText text={String(specialistResult)} />
                         </div>
-                    )}
+                }
 
                  </div>
               </div>
-            )}
+            }
           </div>
         </section>
 
@@ -465,6 +465,6 @@ export default function Consultation() {
           </div>
         </section>
       </main>
-    </div>
-  );
+    </div>);
+
 }

@@ -11,17 +11,17 @@ export default function Sidebar() {
       </div>
 
       <nav className="sidebar-nav">
-        <NavLink to="/" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} end>
+        <NavLink to="/" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} end>
           <LayoutDashboard size={20} />
           <span>Dashboard</span>
         </NavLink>
 
-        <NavLink to="/consultation" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+        <NavLink to="/consultation" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           <MessageSquareText size={20} />
           <span>Consultation</span>
         </NavLink>
 
-        <NavLink to="/history" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+        <NavLink to="/history" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
           <Activity size={20} />
           <span>Patient History</span>
         </NavLink>
@@ -33,6 +33,6 @@ export default function Sidebar() {
           <span>Settings</span>
         </button>
       </div>
-    </aside>
-  );
+    </aside>);
+
 }

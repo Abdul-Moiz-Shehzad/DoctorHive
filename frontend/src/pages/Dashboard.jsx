@@ -1,24 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, FileText, Activity, ArrowRight, Play } from 'lucide-react';
-import { fetchAllCases, type CaseHistory } from '../api';
+import { Users, FileText, Activity, Play } from 'lucide-react';
+import { fetchAllCases } from '../api';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [cases, setCases] = useState<CaseHistory[]>([]);
+  const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAllCases()
-      .then(setCases)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    fetchAllCases().
+    then(setCases).
+    catch(console.error).
+    finally(() => setLoading(false));
   }, []);
 
-  const activeCases = cases.filter(c => c.stage !== 'completed').length;
-  const resolvedCases = cases.filter(c => c.stage === 'completed').length;
+  const activeCases = cases.filter((c) => c.stage !== 'completed').length;
+  const resolvedCases = cases.filter((c) => c.stage === 'completed').length;
   // Grab top 5 most recent
-  const recentCases = cases.slice(0, 5); 
+  const recentCases = cases.slice(0, 5);
 
   return (
     <div className="dashboard-page">
@@ -73,13 +73,13 @@ export default function Dashboard() {
         
         {loading && <div style={{ color: 'var(--muted)', marginTop: '16px' }}>Loading cases...</div>}
         
-        {!loading && recentCases.length === 0 && (
-           <div style={{ color: 'var(--muted)', marginTop: '16px' }}>No consultations found. Be the first to start an analysis!</div>
-        )}
+        {!loading && recentCases.length === 0 &&
+        <div style={{ color: 'var(--muted)', marginTop: '16px' }}>No consultations found. Be the first to start an analysis!</div>
+        }
 
         <div className="activity-list">
-           {recentCases.map((c, i) => (
-             <React.Fragment key={c.case_id}>
+           {recentCases.map((c, i) =>
+          <React.Fragment key={c.case_id}>
                <div className="activity-item">
                  <div className="activity-info">
                     <span className="activity-id mono" style={{ fontSize: '0.85rem' }}>{c.case_id.split('-')[0]}</span>
@@ -97,9 +97,9 @@ export default function Dashboard() {
                
                {i < recentCases.length - 1 && <div className="divider" style={{ margin: '12px 0' }} />}
              </React.Fragment>
-           ))}
+          )}
         </div>
       </section>
-    </div>
-  );
+    </div>);
+
 }
