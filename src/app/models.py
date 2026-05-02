@@ -110,3 +110,61 @@ class OphthalmologistHistory(Base):
     answered_followups = Column(JSONB, default=list)
     pending_questions = Column(JSONB, default=list)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+# ─── Auth & Frontend State Tables ────────────────────────────────────────────
+
+class User(Base):
+    """Registered users with hashed passwords."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    preferred_model = Column(String, default="gemini")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatHistory(Base):
+    """Snapshot of a frontend consultation session for a given user+case."""
+    __tablename__ = "chat_history"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    case_id = Column(String, ForeignKey("cases.case_id"), nullable=False)
+    # JSONB snapshot: {gp_response, stage, specialists_required, answered_followups, specialist_result, submitted_message}
+    snapshot = Column(JSONB, nullable=False, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UserCaseMapping(Base):
+    """Maps which user owns which case."""
+    __tablename__ = "user_case_mapping"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    case_id = Column(String, ForeignKey("cases.case_id"), nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PatientProfile(Base):
+    """Medical profile for a registered user — filled on first login, editable anytime."""
+    __tablename__ = "patient_profiles"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    age = Column(Integer, nullable=True)
+    gender = Column(String, nullable=True)           # Male / Female / Other / Prefer not to say
+    blood_type = Column(String, nullable=True)        # A+, B-, O+, AB+, etc.
+    allergies = Column(JSONB, default=list)           # ["Penicillin", "Pollen"]
+    conditions = Column(JSONB, default=list)          # ["Diabetes Type 2", "Hypertension"]
+    medications = Column(JSONB, default=list)         # ["Metformin 500mg"]
+    smoking = Column(String, nullable=True)           # Never / Occasionally / Regularly
+    alcohol = Column(String, nullable=True)           # Never / Occasionally / Regularly
+    emergency_contact_name = Column(String, nullable=True)
+    emergency_contact_phone = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+

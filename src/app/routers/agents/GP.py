@@ -2,7 +2,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Depends
 from fastapi.params import Form
 from typing import List, Dict, Any, Optional
 import uvicorn
-from src.utils.utilities import get_db, get_llm
+from src.utils.utilities import get_db, get_llm, clean_question
 from sqlalchemy.orm import Session
 from src.app.models import Case, GPResponse
 import logging
@@ -37,7 +37,7 @@ def _parse_gp_output(raw_output: str) -> dict:
         response = resp_text
         response=response.replace("\nfollow_up:","")
 
-    follow_ups = re.findall(r"^\s*\d+\.\s*(.+)", raw_output, re.MULTILINE)
+    follow_ups = [clean_question(q) for q in re.findall(r"^\s*\d+\.\s*(.+)", raw_output, re.MULTILINE)]
     if not follow_ups:
         follow_ups = None
 

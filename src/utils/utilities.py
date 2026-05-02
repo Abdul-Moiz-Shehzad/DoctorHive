@@ -7,6 +7,18 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from src.app.config import OPENAI_API_KEY, GOOGLE_API_KEY, GOOGLE_API_KEY_second, GOOGLE_API_KEY_third
 logger = logging.getLogger(__name__)
 
+def clean_question(q: str) -> str:
+    """Removes leading non-alphanumeric characters from a question string."""
+    if not q:
+        return q
+    # Remove leading characters that aren't letters or numbers (like commas, dots, spaces, etc.)
+    # We use a more explicit regex to catch common artifacts
+    cleaned = re.sub(r'^[,\s.\-!]+', '', q.strip())
+    # Capitalize the first letter if it exists
+    if cleaned and cleaned[0].islower():
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    return cleaned
+
 def parse_specialist_response(text: str) -> dict:
     """
     Parses the model output text and extracts:
@@ -49,7 +61,7 @@ def parse_specialist_response(text: str) -> dict:
             follow_text = follow_section.group(1).strip()
             if follow_text.lower() != "none":
                 follow_ups = re.findall(r"^\s*\d+\.\s*(.+)", follow_text, re.MULTILINE)
-                follow_ups = [q.strip() for q in follow_ups if q.strip()]
+                follow_ups = [clean_question(q) for q in follow_ups if q.strip()]
             else:
                 follow_ups = []
 
@@ -76,7 +88,7 @@ def parse_follow_ups(text: str):
                 if followup_text.lower() != "none":
                     # Split on ? followed by optional whitespace
                     parts = re.split(r'\?\s*', followup_text)
-                    follow_ups = [ (p.strip() + '?') for p in parts if p.strip() ]
+                    follow_ups = [ (clean_question(p) + '?') for p in parts if p.strip() ]
                 else:
                     follow_ups = []
                 break  # Stop after finding the follow_ups line
@@ -118,7 +130,7 @@ def get_db():
 def get_llm(backend: str = "gemini"):
     if backend == "gpt":
         logger.info("Agent used GPT")
-        return ChatOpenAI(model="gpt-5", temperature=1, api_key=OPENAI_API_KEY)
+        return ChatOpenAI(model="gpt-4o", temperature=1, api_key=OPENAI_API_KEY)
     
     elif backend == "gemini":
         logger.info("Agent used Gemini with fallback rotation")

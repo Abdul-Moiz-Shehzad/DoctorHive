@@ -10,6 +10,8 @@ from fastapi.responses import RedirectResponse
 from src.app.routers.agents import GP
 from src.app.routers import structures
 from src.app.routers import orchestrator
+from src.app.routers import auth as auth_router
+from src.app.routers import patient_profile as profile_router
 from src.utils import heartbeat
 from src.app.config import UPLOAD_FOLDER
 
@@ -35,6 +37,8 @@ app.add_middleware(
 )
 
 app.include_router(orchestrator.router, tags=["orchestrator"])
+app.include_router(auth_router.router, tags=["auth"])
+app.include_router(profile_router.router, tags=["profile"])
 app.include_router(structures.router, tags=["structures"])
 app.include_router(heartbeat.router, tags=["heartbeat"])
 
