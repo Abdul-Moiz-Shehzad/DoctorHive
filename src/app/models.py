@@ -28,6 +28,7 @@ class InitialOrchestratorResponse(BaseModel):
     next_followup: Optional[str] = None
     answered_followups: List[Dict[str, Any]] = []
     specialists_required: Optional[List[str]] = None
+    chat_name: str
 
 class FollowUpResponse(BaseModel):
     """Response for follow-up questions after initial GP response."""
@@ -70,6 +71,7 @@ class Case(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     consensus_winner = Column(JSONB, default=dict)
     debate_round_count = Column(Integer, default=0)
+    chat_name = Column(String, nullable=True)
 
 class Specialized_Agents_Diagnosis_Response(BaseModel):
     """Response for the Specialized agents diagnosis."""

@@ -113,7 +113,7 @@ export default function History() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="mono" style={{ fontSize: '0.82rem', color: 'var(--accent-primary)', marginBottom: '6px' }}>{c.case_id}</div>
                   <div style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '500px' }}>
-                    {c.user_message?.length > 80 ? c.user_message.substring(0, 80) + '…' : c.user_message}
+                    {c.chat_name || (c.user_message?.length > 80 ? c.user_message.substring(0, 80) + '…' : c.user_message)}
                   </div>
                   <div style={{ display: 'flex', gap: '16px', marginTop: '10px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>

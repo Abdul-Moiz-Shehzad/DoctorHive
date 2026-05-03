@@ -107,7 +107,7 @@ export default function Dashboard() {
                     {c.case_id.split('-')[0]}
                   </span>
                   <span className="activity-desc" style={{ maxWidth: '380px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {c.user_message || 'No message'}
+                    {c.chat_name || c.user_message || 'No message'}
                   </span>
                 </div>
                 <div className="chip">

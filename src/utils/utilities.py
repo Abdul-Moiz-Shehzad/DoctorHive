@@ -19,6 +19,56 @@ def clean_question(q: str) -> str:
         cleaned = cleaned[0].upper() + cleaned[1:]
     return cleaned
 
+def generate_chat_name(message: str) -> str:
+    """Generate a short chat name (3-4 words max) based on the user's message."""
+    # Skip system notes and find the actual patient complaint
+    if '[System Note:' in message:
+        # Find the patient complaint section
+        complaint_match = re.search(r'Patient Complaint:\s*(.+)', message, re.IGNORECASE | re.DOTALL)
+        if complaint_match:
+            message = complaint_match.group(1).strip()
+    
+    # Remove common medical prefixes and clean the message
+    cleaned = re.sub(r'^(hi|hello|doctor|i have|i am|i feel|my|the|please help|help with|patient says|complaint)\s*', '', message.lower(), flags=re.IGNORECASE)
+    cleaned = re.sub(r'[^\w\s]', ' ', cleaned)  # Replace punctuation with spaces
+    words = [w for w in cleaned.split() if len(w) > 1]  # Filter out single letters
+    
+    # Look for medical symptoms/conditions (prioritize these)
+    medical_keywords = ['pain', 'headache', 'chest', 'stomach', 'back', 'joint', 'muscle', 'fever', 'cough', 'nausea', 'dizziness', 'fatigue', 'rash', 'swelling', 'bleeding', 'infection', 'inflammation']
+    
+    medical_words = []
+    other_words = []
+    
+    for word in words:
+        if any(keyword in word for keyword in medical_keywords):
+            medical_words.append(word)
+        else:
+            other_words.append(word)
+    
+    # Prefer medical terms, but include some context
+    if medical_words:
+        if len(medical_words) >= 2:
+            name_words = medical_words[:3]  # Take up to 3 medical words
+        else:
+            # If only one medical word, take it plus one context word if available
+            name_words = medical_words
+            if other_words and len(other_words) > 0:
+                # Find a relevant context word (avoid pronouns, articles)
+                context_words = [w for w in other_words if w not in ['i', 'my', 'the', 'a', 'an', 'doctor', 'hello', 'hi']]
+                if context_words:
+                    name_words.append(context_words[0])
+    else:
+        # Fallback to first meaningful words
+        name_words = other_words[:3]
+    
+    if not name_words:
+        name_words = words[:3] if words else ['Medical', 'Consultation']
+    
+    # Capitalize first letter of each word
+    name = ' '.join(word.capitalize() for word in name_words[:4])
+    
+    return name
+
 def parse_specialist_response(text: str) -> dict:
     """
     Parses the model output text and extracts:
@@ -96,6 +146,68 @@ def parse_follow_ups(text: str):
         logger.error(f"Parsing error: {e}\nRaw output:\n{text}")
         follow_ups = []  # Default to empty on error
     return follow_ups
+
+def _parse_gp_output(raw_output: str) -> dict:
+    """
+    Parse the LLM's raw plain text into GPResponse fields.
+    Robustly handles missing tags by defaulting to 'direct' keyword and using raw output as response.
+    """
+    keyword = None
+    response = None
+    follow_ups = []
+    specialists = None
+
+    # 1. Try to find keyword
+    keyword_match = re.search(r"keyword:\s*(.+)", raw_output, re.IGNORECASE)
+    if keyword_match:
+        keyword = keyword_match.group(1).strip()
+
+    # 2. Try to find response
+    response_match = re.search(r"response:\s*(.+)", raw_output, re.IGNORECASE | re.DOTALL)
+    if response_match:
+        resp_text = response_match.group(1).strip()
+        # Clean up if it captures until next sections
+        resp_text = re.split(r"\n\s*1\.|\nspecialist:", resp_text, maxsplit=1)[0].strip()
+        response = resp_text
+        if response:
+            response = response.replace("\nfollow_up:", "")
+
+    # 3. Robust fallbacks for missing tags (common in off-topic or refusal responses)
+    if not keyword:
+        keyword = "direct"
+    
+    if not response:
+        # If 'response:' tag is missing, use the raw output as the response
+        # If 'keyword:' was found separately, try to exclude that line
+        if keyword_match:
+            response = re.sub(r"keyword:\s*.+", "", raw_output, count=1, flags=re.IGNORECASE).strip()
+        else:
+            response = raw_output.strip()
+        
+        # Final fallback to empty string if raw_output was somehow empty
+        if not response:
+            response = "No response generated."
+
+    # 4. Parse follow-ups
+    follow_ups = [clean_question(q) for q in re.findall(r"^\s*\d+\.\s*(.+)", raw_output, re.MULTILINE)]
+    if not follow_ups:
+        follow_ups = None
+
+    # 5. Parse specialists
+    specialist_match = re.search(r"specialist:\s*(.+)", raw_output, re.IGNORECASE)
+    if specialist_match:
+        spec_text = specialist_match.group(1).strip()
+        if spec_text.lower() != "none" and spec_text:
+            specialists = [s.strip() for s in spec_text.split(",")]
+        else:
+            specialists = None
+
+    return {
+        "keyword": keyword,
+        "response": response,
+        "follow_up_questions": follow_ups,
+        "specialists_required": specialists
+    }
 def _parse_initial_round_output(raw_output: str) -> dict:
     """Parse the LLM's raw plain text into SpecialistResponse Diagnosis fields."""
     confidence = None

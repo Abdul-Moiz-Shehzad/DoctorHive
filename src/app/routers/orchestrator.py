@@ -36,7 +36,7 @@ from src.app.routers.structures import (
 )
 from src.database import Base, engine, SessionLocal
 from src.utils.parse.parse_file import parse_endpoint
-from src.utils.utilities import get_db
+from src.utils.utilities import get_db, generate_chat_name
 
 app = FastAPI(
     title="Orchestrator",
@@ -103,6 +103,7 @@ async def process_patient_message_and_files(
     # Handle new vs existing case
     if not case_id:
         case_id = str(uuid.uuid4())
+        chat_name = generate_chat_name(message)
         case = Case(
             case_id=case_id,
             user_message=message,
@@ -113,7 +114,8 @@ async def process_patient_message_and_files(
             files_content=files_content,
             timestamp=datetime.utcnow(),
             consensus_winner={},
-            debate_round_count=0
+            debate_round_count=0,
+            chat_name=chat_name
         )
         db.add(case)
         db.commit()
@@ -160,7 +162,8 @@ async def process_patient_message_and_files(
                 gp_response=gp_response.response,
                 next_followup=next_question,
                 answered_followups=case.answered_followups,
-                specialists_required=case.specialists_required
+                specialists_required=case.specialists_required,
+                chat_name=case.chat_name
             )
 
         elif gp_response.keyword == "direct":
@@ -174,7 +177,8 @@ async def process_patient_message_and_files(
                 gp_response=gp_response.response,
                 next_followup=None,
                 answered_followups=case.answered_followups,
-                specialists_required=None
+                specialists_required=None,
+                chat_name=case.chat_name
             )
 
         else:
@@ -189,7 +193,8 @@ async def process_patient_message_and_files(
                 gp_response="Unrecognized GP agent response.",
                 next_followup=None,
                 answered_followups=case.answered_followups,
-                specialists_required=case.specialists_required
+                specialists_required=case.specialists_required,
+                chat_name=case.chat_name
             )
 
     except Exception as e:
@@ -787,6 +792,7 @@ async def get_user_cases(user_id: int, db: Session = Depends(get_db)):
         {
             "case_id": c.case_id,
             "user_message": c.user_message or history_map.get(c.case_id, {}).get("submitted_message"),
+            "chat_name": c.chat_name,
             "stage": c.stage,
             "timestamp": c.timestamp.isoformat() if c.timestamp else None,
             "specialists_required": c.specialists_required,

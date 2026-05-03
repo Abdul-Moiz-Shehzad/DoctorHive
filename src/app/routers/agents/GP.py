@@ -2,7 +2,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Depends
 from fastapi.params import Form
 from typing import List, Dict, Any, Optional
 import uvicorn
-from src.utils.utilities import get_db, get_llm, clean_question
+from src.utils.utilities import get_db, get_llm, clean_question, _parse_gp_output
 from sqlalchemy.orm import Session
 from src.app.models import Case, GPResponse
 import logging
@@ -17,44 +17,6 @@ app = FastAPI(
 )
 router = APIRouter(prefix="/agents/gp")
 
-def _parse_gp_output(raw_output: str) -> dict:
-    """
-    Parse the LLM's raw plain text into GPResponse fields.
-    """
-    keyword = None
-    response = None
-    follow_ups = []
-    specialists = None
-
-    keyword_match = re.search(r"keyword:\s*(.+)", raw_output, re.IGNORECASE)
-    if keyword_match:
-        keyword = keyword_match.group(1).strip()
-
-    response_match = re.search(r"response:\s*(.+)", raw_output, re.IGNORECASE | re.DOTALL)
-    if response_match:
-        resp_text = response_match.group(1).strip()
-        resp_text = re.split(r"\n\s*1\.|\nspecialist:", resp_text, maxsplit=1)[0].strip()
-        response = resp_text
-        response=response.replace("\nfollow_up:","")
-
-    follow_ups = [clean_question(q) for q in re.findall(r"^\s*\d+\.\s*(.+)", raw_output, re.MULTILINE)]
-    if not follow_ups:
-        follow_ups = None
-
-    specialist_match = re.search(r"specialist:\s*(.+)", raw_output, re.IGNORECASE)
-    if specialist_match:
-        spec_text = specialist_match.group(1).strip()
-        if spec_text.lower() != "none":
-            specialists = [s.strip() for s in spec_text.split(",")]
-        else:
-            specialists = None
-
-    return {
-        "keyword": keyword,
-        "response": response,
-        "follow_up_questions": follow_ups,
-        "specialists_required": specialists
-    }
 
 
 
