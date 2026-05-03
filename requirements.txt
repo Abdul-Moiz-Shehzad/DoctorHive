@@ -19,6 +19,7 @@ chromadb==1.5.5
 nltk==3.9.1
 easyocr==1.7.2
 Pillow==11.3.0
+torch==2.8.0
 PyMuPDF==1.26.4
 opencv-python-headless==4.12.0.88
 psycopg2==2.9.10
@@ -27,4 +28,6 @@ requests==2.32.5
 httpx==0.28.1
 tqdm==4.67.1
 tenacity==9.1.2
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
 -e .

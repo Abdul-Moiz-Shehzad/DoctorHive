@@ -20,6 +20,10 @@ from src.app.models import (
     NeurologistHistory,
     CardiologistHistory,
     OphthalmologistHistory,
+    User,
+    ChatHistory,
+    UserCaseMapping,
+    PatientProfile,
 )
 from src.app.routers.agents.GP import GP_assess_case
 from src.app.routers.structures import (
@@ -32,7 +36,7 @@ from src.app.routers.structures import (
 )
 from src.database import Base, engine, SessionLocal
 from src.utils.parse.parse_file import parse_endpoint
-from src.utils.utilities import get_db
+from src.utils.utilities import get_db, generate_chat_name
 
 app = FastAPI(
     title="Orchestrator",
@@ -99,6 +103,7 @@ async def process_patient_message_and_files(
     # Handle new vs existing case
     if not case_id:
         case_id = str(uuid.uuid4())
+        chat_name = generate_chat_name(message)
         case = Case(
             case_id=case_id,
             user_message=message,
@@ -109,7 +114,8 @@ async def process_patient_message_and_files(
             files_content=files_content,
             timestamp=datetime.utcnow(),
             consensus_winner={},
-            debate_round_count=0
+            debate_round_count=0,
+            chat_name=chat_name
         )
         db.add(case)
         db.commit()
@@ -156,7 +162,8 @@ async def process_patient_message_and_files(
                 gp_response=gp_response.response,
                 next_followup=next_question,
                 answered_followups=case.answered_followups,
-                specialists_required=case.specialists_required
+                specialists_required=case.specialists_required,
+                chat_name=case.chat_name
             )
 
         elif gp_response.keyword == "direct":
@@ -170,7 +177,8 @@ async def process_patient_message_and_files(
                 gp_response=gp_response.response,
                 next_followup=None,
                 answered_followups=case.answered_followups,
-                specialists_required=None
+                specialists_required=None,
+                chat_name=case.chat_name
             )
 
         else:
@@ -185,7 +193,8 @@ async def process_patient_message_and_files(
                 gp_response="Unrecognized GP agent response.",
                 next_followup=None,
                 answered_followups=case.answered_followups,
-                specialists_required=case.specialists_required
+                specialists_required=case.specialists_required,
+                chat_name=case.chat_name
             )
 
     except Exception as e:
@@ -463,7 +472,7 @@ async def doctorhive(
         )
 
         refreshed_case = db.query(Case).filter(Case.case_id == case_id).first()
-        refreshed_case.debate_round_count = 1
+        refreshed_case.debate_round_count = 0
         db.commit()
         db.refresh(refreshed_case)
 
@@ -691,6 +700,123 @@ async def doctorhive(
         status_code=400,
         detail=f"Unsupported stage '{stage}'"
     )
+
+
+# -----------------------------
+# Chat History (Frontend State Persistence)
+# -----------------------------
+
+@router.post("/chat_history/save")
+async def save_chat_history(
+    user_id: int = Form(...),
+    case_id: str = Form(...),
+    snapshot: str = Form(..., description="JSON string of the frontend chat state"),
+    db: Session = Depends(get_db),
+):
+    """Upsert the frontend chat snapshot for a user+case. Called silently after each AI response."""
+    import json as _json
+    try:
+        snapshot_data = _json.loads(snapshot)
+    except Exception:
+        raise HTTPException(status_code=400, detail="snapshot must be valid JSON")
+
+    existing = db.query(ChatHistory).filter(
+        ChatHistory.user_id == user_id,
+        ChatHistory.case_id == case_id,
+    ).first()
+
+    if existing:
+        existing.snapshot = snapshot_data
+        existing.updated_at = datetime.utcnow()
+    else:
+        db.add(ChatHistory(user_id=user_id, case_id=case_id, snapshot=snapshot_data))
+
+    db.commit()
+    return {"status": "saved"}
+
+
+@router.get("/chat_history/{user_id}")
+async def get_chat_history(user_id: int, db: Session = Depends(get_db)):
+    """Return all saved chat sessions for a user, ordered by most recent."""
+    rows = (
+        db.query(ChatHistory)
+        .filter(ChatHistory.user_id == user_id)
+        .order_by(ChatHistory.updated_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "case_id": r.case_id,
+            "snapshot": r.snapshot,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rows
+    ]
+
+@router.delete("/cases/{case_id}")
+async def delete_case(case_id: str, db: Session = Depends(get_db)):
+    """Delete a case and all its related records across all tables."""
+    # 1. Specialist Histories
+    db.query(NeurologistHistory).filter(NeurologistHistory.case_id == case_id).delete()
+    db.query(CardiologistHistory).filter(CardiologistHistory.case_id == case_id).delete()
+    db.query(OphthalmologistHistory).filter(OphthalmologistHistory.case_id == case_id).delete()
+    
+    # 2. Chat History & User Mappings
+    db.query(ChatHistory).filter(ChatHistory.case_id == case_id).delete()
+    db.query(UserCaseMapping).filter(UserCaseMapping.case_id == case_id).delete()
+    
+    # 3. Main Case record
+    db.query(Case).filter(Case.case_id == case_id).delete()
+    
+    db.commit()
+    return {"status": "case deleted", "case_id": case_id}
+
+
+@router.get("/cases/{user_id}")
+async def get_user_cases(user_id: int, db: Session = Depends(get_db)):
+    """Return all cases owned by a specific user, joined with case details."""
+    mappings = db.query(UserCaseMapping).filter(UserCaseMapping.user_id == user_id).all()
+    case_ids = [m.case_id for m in mappings]
+    
+    if not case_ids:
+        return []
+    
+    from src.app.models import ChatHistory
+
+    cases = db.query(Case).filter(Case.case_id.in_(case_ids)).order_by(Case.timestamp.desc()).all()
+    histories = db.query(ChatHistory).filter(ChatHistory.case_id.in_(case_ids)).all()
+    history_map = {h.case_id: h.snapshot for h in histories}
+    
+    return [
+        {
+            "case_id": c.case_id,
+            "user_message": c.user_message or history_map.get(c.case_id, {}).get("submitted_message"),
+            "chat_name": c.chat_name,
+            "stage": c.stage,
+            "timestamp": c.timestamp.isoformat() if c.timestamp else None,
+            "specialists_required": c.specialists_required,
+            "answered_followups": c.answered_followups,
+            "consensus_winner": c.consensus_winner,
+            "snapshot": history_map.get(c.case_id)
+        }
+        for c in cases
+    ]
+
+
+@router.post("/user_case")
+async def create_user_case_mapping(
+    user_id: int = Form(...),
+    case_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Record that a user owns a case. Idempotent."""
+    existing = db.query(UserCaseMapping).filter(UserCaseMapping.case_id == case_id).first()
+    if not existing:
+        db.add(UserCaseMapping(user_id=user_id, case_id=case_id))
+        db.commit()
+    return {"status": "ok"}
+
 
 # -----------------------------
 # Shutdown Hook
