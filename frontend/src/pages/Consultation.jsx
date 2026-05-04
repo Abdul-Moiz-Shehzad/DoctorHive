@@ -72,9 +72,44 @@ export default function Consultation() {
           const match = allHistory.find(h => h.case_id === resumeId);
           if (match && match.snapshot) {
             const s = match.snapshot;
-            if (s.gp_response) setOrchestrator(prev => ({ ...prev, gp_response: s.gp_response, answered_followups: s.answered_followups, specialists_required: s.specialists_required, stage: s.stage }));
-            if (s.specialist_result) setSpecialistResult(s.specialist_result);
-            if (s.submitted_message) setSubmittedMessage(s.submitted_message);
+            // Migrate answered_followups
+            let loadedFollowups = s.answered_followups ?? prev?.answered_followups ?? [];
+            loadedFollowups = loadedFollowups.map((qa, i) => {
+               if (qa.isSpecialist === undefined) {
+                   return { ...qa, isSpecialist: i >= 4 }; // Best-effort migration for old chats
+               }
+               return qa;
+            });
+
+            // Migrate xaiLogs
+            let loadedXai = s.xai_logs;
+            if (!loadedXai || loadedXai.length === 0) {
+               try {
+                   loadedXai = JSON.parse(localStorage.getItem(`xai_${resumeId}`) || '[]');
+               } catch(e) {}
+            }
+            loadedXai = (loadedXai || []).map((log, idx) => {
+                // Fix old incorrect future stages
+                if (log.stage === 'debate' && idx === 0) return { ...log, stage: 'initial_round' };
+                if (log.stage === 'specialists_follow_up' && idx === 1) return { ...log, stage: 'debate' };
+                if (log.stage === 'choice' || log.stage === 'transfer_control') return { ...log, stage: 'improved_diagnosis' };
+                return log;
+            });
+
+            setOrchestrator(prev => ({
+              ...prev,
+              gp_response: s.gp_response ?? prev?.gp_response,
+              answered_followups: loadedFollowups,
+              specialists_required: s.specialists_required ?? prev?.specialists_required ?? [],
+              stage: s.stage ?? prev?.stage,
+              stage_after: s.stage_after ?? prev?.stage_after,
+              next_followup: s.next_followup ?? prev?.next_followup,
+              message: s.message ?? prev?.message,
+            }));
+            setSpecialistResult(s.specialist_result ?? null);
+            setSubmittedMessage(s.submitted_message ?? "");
+            setSubmittedFiles(s.submitted_files ?? []);
+            setXaiLogs(loadedXai);
           }
           // Continue loop
           runOrchestratorLoop({ caseId: resumeId, model: preferredModel });
@@ -88,21 +123,26 @@ export default function Consultation() {
 
   // Persist state to DB whenever it changes
   useEffect(() => {
-    if (user && caseId && (orchestrator || specialistResult || submittedMessage)) {
+    if (user && caseId && (orchestrator || specialistResult || submittedMessage || submittedFiles.length > 0)) {
       saveChatHistory({
         user_id: user.user_id,
         case_id: caseId,
         snapshot: {
           gp_response: orchestrator?.gp_response,
           stage: orchestrator?.stage || orchestrator?.stage_after,
+          stage_after: orchestrator?.stage_after,
+          next_followup: orchestrator?.next_followup,
           specialists_required: orchestrator?.specialists_required,
           answered_followups: orchestrator?.answered_followups,
           specialist_result: specialistResult,
-          submitted_message: submittedMessage
+          submitted_message: submittedMessage,
+          submitted_files: submittedFiles.map((file) => typeof file === 'string' ? file : file.name),
+          xai_logs: xaiLogs,
+          message: orchestrator?.message,
         }
       }).catch(console.error);
     }
-  }, [user, caseId, orchestrator, specialistResult, submittedMessage]);
+  }, [user, caseId, orchestrator, specialistResult, submittedMessage, submittedFiles, xaiLogs]);
 
   function onReset() {
     setCaseId(null);
@@ -143,22 +183,39 @@ export default function Consultation() {
           }
         }
 
-        setOrchestrator((prev) => ({
-          ...res,
-          case_id: newCaseId,
-          stage: stage,
-          stage_after: res.stage_after,
-          message: res.message,
-          debate_round_count: res.debate_round_count || prev?.debate_round_count || 0,
-          gp_response: res.gp_response || prev?.gp_response,
-          next_followup: res.next_followup || undefined,
-          answered_followups: res.answered_followups || prev?.answered_followups || [],
-          specialists_required: res.specialists_required || prev?.specialists_required || []
-        }));
+        setOrchestrator((prev) => {
+          let mergedFollowups = prev?.answered_followups || [];
+          if (res.answered_followups) {
+            const isSpec = stage === 'specialists_follow_up' || stage === 'improved_diagnosis' || prev?.stage === 'specialists_follow_up';
+            const incoming = res.answered_followups.map(qa => ({ ...qa, isSpecialist: isSpec }));
+            
+            const existing = [...mergedFollowups];
+            for (const newQa of incoming) {
+              if (!existing.some(oldQa => oldQa.question === newQa.question)) {
+                existing.push(newQa);
+              }
+            }
+            mergedFollowups = existing;
+          }
+
+          return {
+            ...res,
+            case_id: newCaseId,
+            stage: stage,
+            stage_after: res.stage_after,
+            message: res.message,
+            debate_round_count: res.debate_round_count || prev?.debate_round_count || 0,
+            gp_response: res.gp_response || prev?.gp_response,
+            next_followup: res.next_followup || undefined,
+            answered_followups: mergedFollowups,
+            specialists_required: res.specialists_required || prev?.specialists_required || []
+          };
+        });
 
         if (res.data?.responses) {
           setXaiLogs((prev) => {
-            const updated = [...prev, { stage: stage, responses: res.data.responses }];
+            const logStage = res.stage_before || stage;
+            const updated = [...prev, { stage: logStage, responses: res.data.responses }];
             if (newCaseId) {
               localStorage.setItem(`xai_${newCaseId}`, JSON.stringify(updated));
             }
@@ -285,12 +342,43 @@ export default function Consultation() {
       </div>
     );
   }
+
+  let insertedSpecialistDivider = false;
+
+  const insertSpecialistDivider = () => {
+    insertedSpecialistDivider = true;
+    chatNodes.push(
+      <div key="sys-msg-transition" className="chat-bubble-wrapper ai" style={{ justifyContent: 'center', margin: '8px 0' }}>
+        <div className="chat-bubble ai" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.85em', padding: '8px 16px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Terminal size={14} />
+          All GP follow-up questions answered. Forwarding to specialists.
+        </div>
+      </div>
+    );
+    chatNodes.push(
+      <div key="specs-transition" className="chat-bubble-wrapper ai">
+        <div className="chat-bubble ai ai-box">
+          <div className="chat-bubble-title">
+            <FileSearch size={18} /> Specialists Indicated
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+            {specialists.map(s => <div key={s} className="chip"><span className="mono">{s}</span></div>)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (orchestrator?.answered_followups) {
     orchestrator.answered_followups.forEach((qa, i) => {
       if (qa.answer === "skip") return;
 
-      const isSpecialistPhase = Array.isArray(specialists) && specialists.length > 0 && i >= 2; 
+      const isSpecialistPhase = qa.isSpecialist === true;
       
+      if (isSpecialistPhase && !insertedSpecialistDivider && Array.isArray(specialists) && specialists.length > 0) {
+        insertSpecialistDivider();
+      }
+
       chatNodes.push(
         <div key={`qa-q-${i}`} className="chat-bubble-wrapper ai">
           <div className="chat-bubble ai ai-box">
@@ -311,6 +399,23 @@ export default function Consultation() {
     });
   }
 
+  const isGPPhaseOver = orchestrator?.stage && !['initial_round', 'general_follow_up'].includes(orchestrator.stage);
+
+  if (!insertedSpecialistDivider && Array.isArray(specialists) && specialists.length > 0 && isGPPhaseOver) {
+    insertSpecialistDivider();
+  }
+
+  if (orchestrator?.message && orchestrator.message !== "Answer recorded." && !orchestrator.message.includes("Patient answer required") && !orchestrator.message.includes("Forwarding to specialists") && !specialistResult) {
+    chatNodes.push(
+      <div key="sys-msg" className="chat-bubble-wrapper ai" style={{ justifyContent: 'center', margin: '8px 0' }}>
+        <div className="chat-bubble ai" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.85em', padding: '8px 16px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Terminal size={14} />
+          {orchestrator.message}
+        </div>
+      </div>
+    );
+  }
+
   if (nextQuestion) {
     chatNodes.push(
       <div key="next-q" className="chat-bubble-wrapper ai">
@@ -324,20 +429,7 @@ export default function Consultation() {
     );
   }
 
-  if (Array.isArray(specialists) && specialists.length > 0 && !nextQuestion && !specialistResult) {
-    chatNodes.push(
-      <div key="specs" className="chat-bubble-wrapper ai">
-        <div className="chat-bubble ai ai-box">
-          <div className="chat-bubble-title">
-            <FileSearch size={18} /> Specialists Indicated
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-            {specialists.map(s => <div key={s} className="chip"><span className="mono">{s}</span></div>)}
-          </div>
-        </div>
-      </div>
-    );
-  }
+
 
   if (specialistResult) {
     chatNodes.push(

@@ -33,7 +33,7 @@ export default function Sidebar({ theme, toggleTheme }) {
       </div>
 
       <nav className="sidebar-nav">
-        <NavLink to="/" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} end>
+        <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} end>
           <LayoutDashboard size={20} />
           <span>Dashboard</span>
         </NavLink>

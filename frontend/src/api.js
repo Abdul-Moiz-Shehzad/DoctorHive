@@ -11,7 +11,11 @@ function getToken() {
 }
 function authHeaders() {
   const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
+  const headers = {};
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const backendToken = process.env.REACT_APP_BACKEND_TOKEN;
+  if (backendToken) headers['x-backend-token'] = backendToken;
+  return headers;
 }
 async function fetchOrThrow(input, init) {
   try {
@@ -62,6 +66,14 @@ export async function postChangePassword({ current_password, new_password }) {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ current_password, new_password }),
+  });
+  return await parseJsonOrThrow(res);
+}
+
+export async function deleteAccount() {
+  const res = await fetchOrThrow(url('/auth/delete-account'), {
+    method: 'DELETE',
+    headers: authHeaders(),
   });
   return await parseJsonOrThrow(res);
 }
@@ -161,6 +173,15 @@ export async function updatePreferredModel(model) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ model }),
+  });
+  return await parseJsonOrThrow(res);
+}
+
+export async function updatePreferredTheme(theme) {
+  const res = await fetchOrThrow(url('/auth/update-theme'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ theme }),
   });
   return await parseJsonOrThrow(res);
 }

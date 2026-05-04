@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { User, Shield, ShieldCheck, Moon, Sun, Bot, Sparkles } from 'lucide-react';
-import { fetchProfile, postChangePassword, updatePreferredModel } from '../api';
+import { fetchProfile, postChangePassword, updatePreferredModel, deleteAccount } from '../api';
 import PatientProfileModal from '../components/PatientProfileModal';
 
 export default function Settings({ theme, toggleTheme }) {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -15,6 +17,8 @@ export default function Settings({ theme, toggleTheme }) {
   const [pwdLoading, setPwdLoading] = useState(false);
   const [pwdError, setPwdError] = useState('');
   const [pwdSuccess, setPwdSuccess] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -59,6 +63,24 @@ export default function Settings({ theme, toggleTheme }) {
       updateUser({ preferred_model: model });
     } catch (err) {
       console.error("Failed to update model preference", err);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!window.confirm('Delete your account and all chat history permanently? This cannot be undone.')) {
+      return;
+    }
+
+    setDeleteError('');
+    setDeleteLoading(true);
+    try {
+      await deleteAccount();
+      logout();
+      navigate('/login');
+    } catch (err) {
+      setDeleteError(err.message || 'Failed to delete account');
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -196,7 +218,7 @@ export default function Settings({ theme, toggleTheme }) {
                   onClick={() => handleModelChange('gemini')}
                 >
                   <Sparkles size={14} />
-                  <span>Gemini 2.0</span>
+                  <span>Gemini 2.5</span>
                 </button>
                 <button 
                   className={`model-select-btn ${user?.preferred_model === 'gpt' ? 'active' : ''}`}
@@ -251,6 +273,34 @@ export default function Settings({ theme, toggleTheme }) {
                 {pwdLoading ? 'Updating…' : 'Update Password'}
               </button>
             </form>
+          </section>
+
+          <section className="card" style={{ borderColor: 'rgba(239, 68, 68, 0.2)' }}>
+            <div className="cardTitle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#b91c1c' }}>
+                <span style={{ width: '20px', height: '20px', borderRadius: '999px', background: '#fecaca', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>!</span>
+                Delete account
+              </span>
+            </div>
+            <div style={{ marginTop: '16px', color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.6 }}>
+              Permanently remove your DoctorHive account, medical profile, and all associated consultation history.
+            </div>
+            {deleteError && (
+              <div style={{ marginTop: '12px', color: '#b91c1c', fontSize: '13px' }}>{deleteError}</div>
+            )}
+            <button
+              className="cta-button"
+              onClick={handleDeleteAccount}
+              disabled={deleteLoading}
+              style={{
+                marginTop: '16px',
+                background: deleteLoading ? 'rgba(220, 38, 38, 0.75)' : '#dc2626',
+                borderColor: 'transparent',
+                color: '#fff',
+              }}
+            >
+              {deleteLoading ? 'Deleting account…' : 'Delete account'}
+            </button>
           </section>
         </div>
       </div>

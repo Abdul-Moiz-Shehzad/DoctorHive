@@ -6,8 +6,9 @@
   overflow: hidden;
 }
 
-.main-content {
+.main-content, .full-content {
   flex: 1;
+  width: 100%;
   overflow-y: auto;
   position: relative;
   background-color: var(--bg-primary);

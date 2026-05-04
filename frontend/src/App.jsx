@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Consultation from './pages/Consultation';
 import History from './pages/History';
 import Login from './pages/Login';
 import Settings from './pages/Settings';
+import Landing from './pages/Landing';
 import PatientProfileModal from './components/PatientProfileModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { fetchProfile } from './api';
@@ -19,6 +20,7 @@ function AppShell() {
   const { isAuthenticated, user } = useAuth();
   const [theme, setTheme] = useState(() => localStorage.getItem('doctorhive-theme') || 'dark');
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const location = useLocation();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -35,14 +37,9 @@ function AppShell() {
 
   const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
 
-  if (!isAuthenticated) {
-    return (
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    );
-  }
+  const isLandingPage = location.pathname === '/';
+  const isLoginPage = location.pathname === '/login';
+  const showSidebar = isAuthenticated && !isLandingPage && !isLoginPage;
 
   return (
     <div className="app-container">
@@ -53,14 +50,18 @@ function AppShell() {
           isSettings={false}
         />
       )}
-      <Sidebar theme={theme} toggleTheme={toggleTheme} />
-      <div className="main-content">
+      {showSidebar && <Sidebar theme={theme} toggleTheme={toggleTheme} />}
+      <div className={showSidebar ? "main-content" : "full-content"}>
         <Routes>
-          <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/" element={<Landing />} />
+          <Route 
+            path="/login" 
+            element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
+          />
+          <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
           <Route path="/consultation" element={<PrivateRoute><Consultation /></PrivateRoute>} />
           <Route path="/history" element={<PrivateRoute><History /></PrivateRoute>} />
           <Route path="/settings" element={<PrivateRoute><Settings theme={theme} toggleTheme={toggleTheme} /></PrivateRoute>} />
-          <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
@@ -76,4 +77,4 @@ export default function App() {
       </AuthProvider>
     </Router>
   );
-}
+}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { Brain, Database, ShieldCheck, Lock, UserPlus, ArrowRight } from 'lucide-react';
 import { postLogin, postRegister } from '../api';
 import { useAuth } from '../context/AuthContext';
 
@@ -26,7 +27,7 @@ export default function Login() {
         res = await postRegister({ username: form.username, email: form.email, password: form.password });
       }
       login(res.access_token, { user_id: res.user_id, username: res.username, email: res.email });
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Something went wrong');
     } finally {
@@ -36,95 +37,88 @@ export default function Login() {
 
   return (
     <div className="login-page">
-      {/* ── Left panel ── */}
       <div className="login-panel-left">
-        <div className="login-brand">
+        <Link to="/" className="login-brand" style={{ textDecoration: 'none' }}>
           <div className="login-logo">
-            <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-              <rect width="40" height="40" rx="12" fill="url(#g1)" />
-              <path d="M20 8v24M8 20h24" stroke="#fff" strokeWidth="3.5" strokeLinecap="round"/>
-              <defs>
-                <linearGradient id="g1" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#6366f1"/>
-                  <stop offset="1" stopColor="#8b5cf6"/>
-                </linearGradient>
-              </defs>
-            </svg>
+            <img src="/doctorhive logo.png" alt="DoctorHive Logo" className="landing-brand-mark" style={{ borderRadius: '14px' }} />
             <span>DoctorHive</span>
           </div>
-          <h1 className="login-headline">AI-Powered<br />Medical Intelligence</h1>
-          <p className="login-subtext">
-            A multi-agent diagnostic platform where specialist AI models collaborate in real-time to deliver accurate, explainable medical assessments.
-          </p>
-        </div>
+        </Link>
 
-        <div className="login-features">
+        <div className="login-hero-copy">
+            <h1 className="login-headline">Clinical Intelligence<br />at your fingertips.</h1>
+            <p className="login-subtext">
+              Log in to manage complex consultations, review agent consensus, and access persistent clinical history in one unified workspace.
+            </p>
+          </div>
+
+        <div className="login-feature-grid">
           {[
-            { icon: '🧠', label: 'Multi-Agent Consensus', desc: 'Neurologist, Cardiologist & more debate your case' },
-            { icon: '🔍', label: 'Explainable AI', desc: 'Full transparency into every diagnostic decision' },
-            { icon: '📋', label: 'Session Memory', desc: 'Full consultation history saved per patient' },
-          ].map((f) => (
-            <div key={f.label} className="login-feature-item">
-              <span className="login-feature-icon">{f.icon}</span>
+            { icon: <Brain size={24} />, label: 'Consensus Reasoning', desc: 'Specialist agents debate patient data to deliver a unified diagnosis.' },
+            { icon: <Database size={24} />, label: 'Clinical Continuity', desc: 'Full case history and context preserved across every consultation.' },
+            { icon: <ShieldCheck size={24} />, label: 'Enterprise Security', desc: 'Audit-ready encryption and secure medical data management.' },
+          ].map((item) => (
+            <div key={item.label} className="login-feature-block">
+              <div className="login-feature-mark">{item.icon}</div>
               <div>
-                <div className="login-feature-label">{f.label}</div>
-                <div className="login-feature-desc">{f.desc}</div>
+                <div className="login-feature-heading">{item.label}</div>
+                <div className="login-feature-copy">{item.desc}</div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── Right panel (form) ── */}
       <div className="login-panel-right">
-        <div className="login-form-card">
+        <div className="login-form-card glass-card">
           <div className="login-tabs">
             <button className={`login-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => { setTab('login'); setError(''); }}>
-              Sign In
+              <Lock size={16} /> Sign In
             </button>
             <button className={`login-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => { setTab('register'); setError(''); }}>
-              Create Account
+              <UserPlus size={16} /> Sign Up
             </button>
           </div>
 
           <div className="login-form-header">
-            <h2>{tab === 'login' ? 'Welcome back' : 'Get started'}</h2>
-            <p>{tab === 'login' ? 'Sign in to your DoctorHive account' : 'Create your DoctorHive account'}</p>
+            <h2>{tab === 'login' ? 'Welcome Back' : 'Get Started'}</h2>
+            <p>{tab === 'login' ? 'Log in to continue your consultations.' : 'Start your first AI-powered medical review.'}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="login-form">
             <div className="login-field">
-              <label htmlFor="lf-email">Email</label>
-              <input id="lf-email" type="email" placeholder="Enter your email" value={form.email} onChange={update('email')} required autoComplete="email" />
+              <label htmlFor="lf-email">Email Address</label>
+              <input id="lf-email" type="email" placeholder="yourname@example.com" value={form.email} onChange={update('email')} required autoComplete="email" />
             </div>
 
             {tab === 'register' && (
               <div className="login-field">
-                <label htmlFor="lf-username">Username</label>
-                <input id="lf-username" type="text" placeholder="Choose a username" value={form.username} onChange={update('username')} required autoComplete="username" />
+                <label htmlFor="lf-username">Full Name / Username</label>
+                <input id="lf-username" type="text" placeholder="e.g. John Doe" value={form.username} onChange={update('username')} required autoComplete="username" />
               </div>
             )}
 
             <div className="login-field">
               <label htmlFor="lf-password">Password</label>
-              <input id="lf-password" type="password" placeholder="Enter your password" value={form.password} onChange={update('password')} required autoComplete={tab === 'login' ? 'current-password' : 'new-password'} />
+              <input id="lf-password" type="password" placeholder="••••••••" value={form.password} onChange={update('password')} required autoComplete={tab === 'login' ? 'current-password' : 'new-password'} />
             </div>
 
             {error && <div className="login-error">{error}</div>}
 
             <button type="submit" className="login-submit" disabled={loading}>
-              {loading ? (
-                <span className="login-spinner" />
-              ) : (
-                tab === 'login' ? 'Sign In' : 'Create Account'
+              {loading ? <span className="login-spinner" /> : (
+                <>
+                  {tab === 'login' ? 'Log In' : 'Create Account'}
+                  <ArrowRight size={18} />
+                </>
               )}
             </button>
           </form>
 
           <p className="login-switch-text">
-            {tab === 'login' ? "Don't have an account?" : 'Already have an account?'}
+            {tab === 'login' ? 'New to DoctorHive?' : 'Already have an account?'}
             <button className="login-switch-btn" onClick={() => { setTab(tab === 'login' ? 'register' : 'login'); setError(''); }}>
-              {tab === 'login' ? ' Sign Up' : ' Sign In'}
+              {tab === 'login' ? ' Create account' : ' Log in'}
             </button>
           </p>
         </div>

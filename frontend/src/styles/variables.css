@@ -4,10 +4,10 @@
 /* Default (Dark Mode - Kinetic Forge) */
 :root {
   /* Colors */
-  --bg-primary: #0d0d12;
-  --bg-secondary: #1A1A1D;
-  --bg-tertiary: #222226;
-  --bg-card: rgba(26, 26, 29, 0.7);
+  --bg-primary: #121217; /* Slightly lighter than pure black for contrast */
+  --bg-secondary: #18181d;
+  --bg-tertiary: #1e1e24;
+  --bg-card: rgba(24, 24, 29, 0.7);
   --bg-input: #ffffff;
   
   --accent-primary: #4E4FEB;

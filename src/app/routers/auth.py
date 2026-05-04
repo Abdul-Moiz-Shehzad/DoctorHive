@@ -10,7 +10,16 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from src.app.models import User
+from src.app.models import (
+    User,
+    Case,
+    ChatHistory,
+    UserCaseMapping,
+    PatientProfile,
+    NeurologistHistory,
+    CardiologistHistory,
+    OphthalmologistHistory,
+)
 from src.utils.utilities import get_db
 
 load_dotenv()
@@ -41,12 +50,14 @@ class TokenResponse(BaseModel):
     username: str
     email: str
     preferred_model: str
+    preferred_theme: str
 
 class UserResponse(BaseModel):
     user_id: int
     username: str
     email: str
     preferred_model: str
+    preferred_theme: str
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -84,8 +95,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     """Register a new user. Returns a JWT immediately so the user is logged in."""
-    if db.query(User).filter(User.username == req.username).first():
-        raise HTTPException(status_code=409, detail="Username already taken")
     if db.query(User).filter(User.email == req.email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
@@ -105,7 +114,8 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
         user_id=user.id, 
         username=user.username, 
         email=user.email,
-        preferred_model=user.preferred_model or "gemini"
+        preferred_model=user.preferred_model or "gemini",
+        preferred_theme=user.preferred_theme or "dark"
     )
 
 
@@ -122,7 +132,8 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
         user_id=user.id, 
         username=user.username, 
         email=user.email,
-        preferred_model=user.preferred_model or "gemini"
+        preferred_model=user.preferred_model or "gemini",
+        preferred_theme=user.preferred_theme or "dark"
     )
 
 
@@ -133,16 +144,20 @@ async def get_me(current_user: Optional[User] = Depends(get_current_user)):
         user_id=current_user.id, 
         username=current_user.username, 
         email=current_user.email,
-        preferred_model=current_user.preferred_model or "gemini"
+        preferred_model=current_user.preferred_model or "gemini",
+        preferred_theme=current_user.preferred_theme or "dark"
     )
 
 
 class UpdateModelRequest(BaseModel):
     model: str
 
+class UpdateThemeRequest(BaseModel):
+    theme: str
+
 @router.post("/update-model")
 async def update_model(req: UpdateModelRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Update the user's preferred AI model."""
+    """Update the user's preferred model."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     current_user.preferred_model = req.model
@@ -166,3 +181,27 @@ async def change_password(req: ChangePasswordRequest, current_user: User = Depen
     current_user.hashed_password = hash_password(req.new_password)
     db.commit()
     return {"status": "password updated"}
+
+@router.delete('/delete-account')
+async def delete_account(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete the current user and any owned consultation history."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    case_ids = [m.case_id for m in db.query(UserCaseMapping).filter(UserCaseMapping.user_id == current_user.id).all()]
+
+    if case_ids:
+        db.query(NeurologistHistory).filter(NeurologistHistory.case_id.in_(case_ids)).delete(synchronize_session=False)
+        db.query(CardiologistHistory).filter(CardiologistHistory.case_id.in_(case_ids)).delete(synchronize_session=False)
+        db.query(OphthalmologistHistory).filter(OphthalmologistHistory.case_id.in_(case_ids)).delete(synchronize_session=False)
+        db.query(ChatHistory).filter(ChatHistory.case_id.in_(case_ids)).delete(synchronize_session=False)
+        db.query(Case).filter(Case.case_id.in_(case_ids)).delete(synchronize_session=False)
+        db.query(UserCaseMapping).filter(UserCaseMapping.case_id.in_(case_ids)).delete(synchronize_session=False)
+
+    db.query(ChatHistory).filter(ChatHistory.user_id == current_user.id).delete(synchronize_session=False)
+    db.query(PatientProfile).filter(PatientProfile.user_id == current_user.id).delete(synchronize_session=False)
+    db.query(UserCaseMapping).filter(UserCaseMapping.user_id == current_user.id).delete(synchronize_session=False)
+    db.query(User).filter(User.id == current_user.id).delete(synchronize_session=False)
+    db.commit()
+
+    return {"status": "account deleted"}

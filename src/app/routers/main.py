@@ -2,8 +2,10 @@ import logging
 import os
 import shutil
 import sys
-from fastapi import APIRouter, FastAPI, HTTPException, Form, UploadFile
+from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI, HTTPException, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from typing import Optional, List
 
 from fastapi.responses import RedirectResponse
@@ -14,6 +16,9 @@ from src.app.routers import auth as auth_router
 from src.app.routers import patient_profile as profile_router
 from src.utils import heartbeat
 from src.app.config import UPLOAD_FOLDER
+from src.database import engine
+
+load_dotenv()
 
 app = FastAPI(
     title="Main",
@@ -25,6 +30,41 @@ logger = logging.getLogger(__name__)
 
 app.include_router(router)
 
+BACKEND_FRONTEND_TOKEN = os.getenv("BACKEND_FRONTEND_TOKEN")
+
+ALLOWED_PUBLIC_PATHS = {
+    "/",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/favicon.ico",
+}
+AUTH_EXEMPT_PATHS = {
+    "/auth/register",
+    "/auth/login",
+}
+
+@app.middleware("http")
+async def validate_backend_frontend_token(request: Request, call_next):
+    # Allow CORS preflight and public auth endpoints without the hidden token.
+    if request.method == "OPTIONS" or request.url.path in ALLOWED_PUBLIC_PATHS or request.url.path in AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+
+    header_token = request.headers.get("x-backend-token")
+    if not BACKEND_FRONTEND_TOKEN or header_token != BACKEND_FRONTEND_TOKEN:
+        raise HTTPException(status_code=403, detail="Hidden backend token missing or invalid.")
+    return await call_next(request)
+
+
+@app.on_event("startup")
+async def ensure_user_schema():
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE IF EXISTS users "
+            "ADD COLUMN IF NOT EXISTS preferred_model VARCHAR DEFAULT 'gemini', "
+            "ADD COLUMN IF NOT EXISTS preferred_theme VARCHAR DEFAULT 'dark';"
+        ))
+        conn.commit()
 
 
 # Enable CORS
