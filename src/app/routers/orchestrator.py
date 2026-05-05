@@ -580,6 +580,7 @@ async def doctorhive(
             return {
                 "case_id": case_id,
                 "decision": "loop_back_to_debate",
+                "stage_before": "debate",
                 "debate_round_count": refreshed_case.debate_round_count,
                 "stage_after": refreshed_case.stage,
                 "data": result,

@@ -2,7 +2,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Depends
 from fastapi.params import Form
 from typing import List, Dict, Any, Optional
 import uvicorn
-from src.utils.utilities import get_db, get_llm, clean_question, _parse_gp_output
+from src.utils.utilities import get_db, get_llm, clean_question, _parse_gp_output, extract_content
 from sqlalchemy.orm import Session
 from src.app.models import Case, GPResponse
 import logging
@@ -58,7 +58,7 @@ Do not change these formats under any circumstance.
 
     prompt = f"{system_prompt}\n\nPatient says: {user_message}"
     try:
-        raw_response = llm.invoke(prompt).content.strip()
+        raw_response = extract_content(llm.invoke(prompt).content)
         logger.info(f"LLM Raw response: {raw_response}")
     except Exception as e:
         logger.error(f"LLM error: {e}")

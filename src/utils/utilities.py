@@ -4,7 +4,7 @@ import time
 import logging
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
-from src.app.config import OPENAI_API_KEY, GOOGLE_API_KEY, GOOGLE_API_KEY_second, GOOGLE_API_KEY_third
+from src.app.config import OPENAI_API_KEY, GOOGLE_API_KEY, GOOGLE_API_KEY_second, GOOGLE_API_KEY_third, GOOGLE_API_KEY_fourth
 logger = logging.getLogger(__name__)
 
 def clean_question(q: str) -> str:
@@ -20,54 +20,97 @@ def clean_question(q: str) -> str:
     return cleaned
 
 def generate_chat_name(message: str) -> str:
-    """Generate a short chat name (3-4 words max) based on the user's message."""
+    """Generate a short meaningful chat name from any user message."""
+
     # Skip system notes and find the actual patient complaint
     if '[System Note:' in message:
-        # Find the patient complaint section
         complaint_match = re.search(r'Patient Complaint:\s*(.+)', message, re.IGNORECASE | re.DOTALL)
         if complaint_match:
             message = complaint_match.group(1).strip()
-    
-    # Remove common medical prefixes and clean the message
-    cleaned = re.sub(r'^(hi|hello|doctor|i have|i am|i feel|my|the|please help|help with|patient says|complaint)\s*', '', message.lower(), flags=re.IGNORECASE)
-    cleaned = re.sub(r'[^\w\s]', ' ', cleaned)  # Replace punctuation with spaces
-    words = [w for w in cleaned.split() if len(w) > 1]  # Filter out single letters
-    
-    # Look for medical symptoms/conditions (prioritize these)
-    medical_keywords = ['pain', 'headache', 'chest', 'stomach', 'back', 'joint', 'muscle', 'fever', 'cough', 'nausea', 'dizziness', 'fatigue', 'rash', 'swelling', 'bleeding', 'infection', 'inflammation']
-    
-    medical_words = []
-    other_words = []
-    
+
+    # Lowercase message
+    cleaned = message.lower().strip()
+
+    # Remove common starting phrases only
+    cleaned = re.sub(
+        r'^(hi|hello|hey|doctor|dr|please|can you|could you|i have|i am|i feel|i need|my|the|patient says|complaint)\s+',
+        '',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
+    # Replace punctuation with spaces
+    cleaned = re.sub(r'[^\w\s]', ' ', cleaned)
+
+    words = [w for w in cleaned.split() if len(w) > 1]
+
+    # Common useless words that should not appear in title
+    stop_words = {
+        'i', 'me', 'my', 'we', 'our', 'you', 'your',
+        'the', 'a', 'an', 'is', 'am', 'are', 'was', 'were',
+        'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does',
+        'did', 'will', 'would', 'should', 'could', 'can',
+        'which', 'that', 'this', 'these', 'those', 'also',
+        'and', 'or', 'but', 'because', 'so', 'if', 'then',
+        'for', 'to', 'of', 'in', 'on', 'at', 'by', 'with',
+        'from', 'into', 'about', 'as', 'it', 'its',
+        'please', 'help', 'doctor', 'dr', 'patient', 'says',
+        'complaint', 'problem', 'issue', 'affecting', 'causing',
+        'having', 'feeling', 'suffering'
+    }
+
+    # Important domain words from different categories
+    important_keywords = {
+        # Neuro
+        'headache', 'migraine', 'dizziness', 'seizure', 'numbness',
+        'weakness', 'memory', 'confusion', 'fainting',
+
+        # Cardio
+        'chest', 'heart', 'palpitation', 'palpitations', 'bp',
+        'pressure', 'breathlessness', 'shortness', 'pulse',
+
+        # Ophthalmology
+        'eye', 'eyes', 'eyesight', 'vision', 'blurred', 'blurry',
+        'redness', 'tearing', 'blindness',
+
+        # General medical
+        'fever', 'cough', 'pain', 'stomach', 'vomiting', 'nausea',
+        'diarrhea', 'rash', 'swelling', 'bleeding', 'infection',
+        'throat', 'fatigue', 'allergy',
+
+        # Non-medical/general
+        'appointment', 'report', 'medicine', 'prescription',
+        'diet', 'sleep', 'stress', 'anxiety'
+    }
+
+    important_words = []
+    normal_words = []
+
     for word in words:
-        if any(keyword in word for keyword in medical_keywords):
-            medical_words.append(word)
+        if word in stop_words:
+            continue
+
+        if word in important_keywords:
+            important_words.append(word)
         else:
-            other_words.append(word)
-    
-    # Prefer medical terms, but include some context
-    if medical_words:
-        if len(medical_words) >= 2:
-            name_words = medical_words[:3]  # Take up to 3 medical words
-        else:
-            # If only one medical word, take it plus one context word if available
-            name_words = medical_words
-            if other_words and len(other_words) > 0:
-                # Find a relevant context word (avoid pronouns, articles)
-                context_words = [w for w in other_words if w not in ['i', 'my', 'the', 'a', 'an', 'doctor', 'hello', 'hi']]
-                if context_words:
-                    name_words.append(context_words[0])
-    else:
-        # Fallback to first meaningful words
-        name_words = other_words[:3]
-    
+            normal_words.append(word)
+
+    # Prefer important words, then add normal meaningful context
+    name_words = []
+
+    for word in important_words:
+        if word not in name_words:
+            name_words.append(word)
+
+    for word in normal_words:
+        if word not in name_words:
+            name_words.append(word)
+
+    # Final fallback
     if not name_words:
-        name_words = words[:3] if words else ['Medical', 'Consultation']
-    
-    # Capitalize first letter of each word
-    name = ' '.join(word.capitalize() for word in name_words[:4])
-    
-    return name
+        name_words = ['Medical', 'Consultation']
+
+    return ' '.join(word.capitalize() for word in name_words[:4])
 
 def parse_specialist_response(text: str) -> dict:
     """
@@ -245,17 +288,80 @@ def get_llm(backend: str = "gemini"):
         return ChatOpenAI(model="gpt-4o", temperature=1, api_key=OPENAI_API_KEY)
     
     elif backend == "gemini":
-        logger.info("Agent used Gemini with fallback rotation")
+        logger.info("Agent used Gemini with fallback rotation (Gemini 3 First)")
         
-        # Define your different instances
-        primary = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY)
-        secondary = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY_second)
-        third = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY_third)
-        
-        # Create a chain that automatically falls back on ResourceExhausted errors
-        llm_with_fallbacks = primary.with_fallbacks([secondary, third])
-        
+        # --- Gemini 2.5 Instances ---
+        first_g25 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=1,
+            api_key=GOOGLE_API_KEY
+        )
+        second_g25 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=1,
+            api_key=GOOGLE_API_KEY_second
+        )
+        third_g25 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=1,
+            api_key=GOOGLE_API_KEY_third
+        )
+        fourth_g25 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=1,
+            api_key=GOOGLE_API_KEY_fourth
+        )
+
+        # --- Gemini 3 Instances ---
+        first_g3 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview",
+            temperature=1,
+            api_key=GOOGLE_API_KEY
+        )
+        second_g3 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview",
+            temperature=1,
+            api_key=GOOGLE_API_KEY_second
+        )
+        third_g3 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview",
+            temperature=1,
+            api_key=GOOGLE_API_KEY_third
+        )
+        fourth_g3 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview",
+            temperature=1,
+            api_key=GOOGLE_API_KEY_fourth
+        )
+
+        # Chain: g3_1 -> g3_2 -> g3_3 -> g3_4 -> g25_1 -> g25_2 -> g25_3 -> g25_4
+        llm_with_fallbacks = first_g3.with_fallbacks([
+            second_g3,
+            third_g3,
+            fourth_g3,
+            first_g25,
+            second_g25,
+            third_g25,
+            fourth_g25
+        ])
+
         return llm_with_fallbacks
 
     else:
         raise ValueError("Unsupported backend. Use 'gpt' or 'gemini'.")
+
+def extract_content(content) -> str:
+    """Robustly extracts text content from an LLM response content field."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict) and "text" in part:
+                text_parts.append(part["text"])
+            else:
+                text_parts.append(str(part))
+        return "".join(text_parts).strip()
+    return str(content).strip()

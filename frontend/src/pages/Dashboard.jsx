@@ -11,11 +11,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAllCases()
+    if (!user?.user_id) return;
+    fetchAllCases(user.user_id)
       .then(setCases)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [user]);
 
   const activeCases = cases.filter((c) => c.stage !== 'completed').length;
   const resolvedCases = cases.filter((c) => c.stage === 'completed').length;

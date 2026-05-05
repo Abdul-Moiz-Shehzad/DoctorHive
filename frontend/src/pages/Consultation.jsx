@@ -2,6 +2,7 @@ import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { postDoctorHive, fetchProfile, saveChatHistory, createUserCaseMapping, fetchChatHistory } from "../api";
 import { useAuth } from "../context/AuthContext";
+import { groupIntoRounds } from "../utils/rounds";
 import { PlusCircle, Send, Paperclip, Stethoscope, FileSearch, Terminal, User, Bot, Loader2, Play, ChevronDown, RefreshCw } from "lucide-react";
 
 const MarkdownText = ({ text }) => {
@@ -47,8 +48,9 @@ export default function Consultation() {
   const nextQuestion = orchestrator?.next_followup ?? null;
   const specialists = orchestrator?.specialists_required ?? null;
 
-  const canSubmit = currentInput.trim().length > 0 && ui.kind !== "loading";
-  const isFollowupPhase = !!caseId && !!nextQuestion;
+  const isCaseCompleted = orchestrator?.stage === "completed" || specialistResult !== null;
+  const canSubmit = currentInput.trim().length > 0 && ui.kind !== "loading" && !isCaseCompleted;
+  const isFollowupPhase = !!caseId && !!nextQuestion && !isCaseCompleted;
 
   const stageBadge = useMemo(() => {
     return orchestrator?.stage ?? orchestrator?.stage_after ?? "Intake";
@@ -187,7 +189,7 @@ export default function Consultation() {
           let mergedFollowups = prev?.answered_followups || [];
           if (res.answered_followups) {
             const isSpec = stage === 'specialists_follow_up' || stage === 'improved_diagnosis' || prev?.stage === 'specialists_follow_up';
-            const incoming = res.answered_followups.map(qa => ({ ...qa, isSpecialist: isSpec }));
+            const incoming = res.answered_followups.map(qa => ({ ...qa, isSpecialist: isSpec, round: prev?.debate_round_count || 1 }));
             
             const existing = [...mergedFollowups];
             for (const newQa of incoming) {
@@ -318,7 +320,14 @@ export default function Consultation() {
     chatNodes.push(
       <div key="init-msg" className="chat-bubble-wrapper user">
         <div className="chat-bubble user">
-          <div style={{ whiteSpace: "pre-wrap" }}>{submittedMessage}</div>
+          <div style={{ whiteSpace: "pre-wrap" }}>
+            {(() => {
+              let text = submittedMessage || "";
+              text = text.replace(/\[System Note:.*?\]/gi, '');
+              text = text.replace(/Patient Complaint:/gi, '');
+              return text.trim();
+            })()}
+          </div>
           {submittedFiles.length > 0 && (
             <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '0.9em', color: 'var(--text-muted)' }}>
               <Paperclip size={14} className="inline mr-2" />
@@ -470,7 +479,7 @@ export default function Consultation() {
           {specialistResult.improved_diagnosis?.results && (
             <div className="mt-8">
               <div style={{ margin: '16px 0', borderBottom: '1px solid rgba(255,255,255,0.1)' }} />
-              <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)' }}>Specialist Breakdown</h4>
+              <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)' }}>Final Specialist Reports</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {Object.entries(specialistResult.improved_diagnosis.results).filter(([_, val]) => val !== null).map(([specialist, sd]) => (
                   <div key={specialist} style={{ padding: '12px', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', background: 'rgba(0,0,0,0.1)' }}>
@@ -524,40 +533,50 @@ export default function Consultation() {
                 </div>
               )}
 
-              {xaiLogs.map((log, i) => (
-                <div key={i} style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                  <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Stethoscope size={14}/> Agent Communication ({log.stage})</h4>
-                  {Object.entries(log.responses).map(([agent, data]) => (
-                    <div key={agent} style={{ marginTop: '8px', padding: '8px', background: 'var(--bg-primary)', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
-                      <div style={{ fontWeight: 600, textTransform: 'capitalize', fontSize: '12px', color: 'var(--accent-primary)', marginBottom: '4px' }}>{agent}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        {data === null ? (
-                          <span style={{ fontStyle: 'italic', opacity: 0.7 }}>No response / Not involved</span>
-                        ) : typeof data === 'object' ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {data.confidence && (
-                              <div><strong style={{ color: 'var(--success-text)' }}>Confidence:</strong> {data.confidence}%</div>
-                            )}
-                            {data.diagnosis && (
-                              <div><strong style={{ color: 'var(--text-primary)' }}>Diagnosis:</strong> {data.diagnosis}</div>
-                            )}
-                            {data.explanation && (
-                              <div><strong style={{ color: 'var(--text-primary)' }}>Rationale:</strong><div style={{ marginTop: '2px', maxHeight: '100px', overflowY: 'auto', paddingRight: '4px' }}>{data.explanation}</div></div>
-                            )}
-                            {data.follow_ups && Array.isArray(data.follow_ups) && (
-                              <div><strong style={{ color: 'var(--accent-glow)' }}>Follow-ups requested:</strong>
-                                <ul style={{ margin: '4px 0 0 0', paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  {data.follow_ups.map((q, idx) => <li key={idx}>{q}</li>)}
-                                </ul>
+              {groupIntoRounds(xaiLogs).map((round) => (
+                <div key={round.roundNum} style={{ marginBottom: '16px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>Specialist Round {round.roundNum}</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {round.logs.map((log, i) => {
+                      const stageLabel = log.stage === 'specialists_follow_up' ? 'improved diagnosis' : log.stage.replace(/_/g, ' ');
+                      return (
+                        <div key={i} style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                          <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', textTransform: 'capitalize' }}><Stethoscope size={14}/> Stage: {stageLabel}</h4>
+                          {Object.entries(log.responses).map(([agent, data]) => (
+                            <div key={agent} style={{ marginTop: '8px', padding: '8px', background: 'var(--bg-primary)', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                              <div style={{ fontWeight: 600, textTransform: 'capitalize', fontSize: '12px', color: 'var(--accent-primary)', marginBottom: '4px' }}>{agent}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                {data === null ? (
+                                  <span style={{ fontStyle: 'italic', opacity: 0.7 }}>No response / Not involved</span>
+                                ) : typeof data === 'object' ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {data.confidence && (
+                                      <div><strong style={{ color: 'var(--success-text)' }}>Confidence:</strong> {data.confidence}%</div>
+                                    )}
+                                    {data.diagnosis && (
+                                      <div><strong style={{ color: 'var(--text-primary)' }}>Diagnosis:</strong> {data.diagnosis}</div>
+                                    )}
+                                    {data.explanation && (
+                                      <div><strong style={{ color: 'var(--text-primary)' }}>Rationale:</strong><div style={{ marginTop: '2px', maxHeight: '100px', overflowY: 'auto', paddingRight: '4px' }}>{data.explanation}</div></div>
+                                    )}
+                                    {data.follow_ups && Array.isArray(data.follow_ups) && (
+                                      <div><strong style={{ color: 'var(--accent-glow)' }}>Follow-ups requested:</strong>
+                                        <ul style={{ margin: '4px 0 0 0', paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                          {data.follow_ups.map((q, idx) => <li key={idx}>{q}</li>)}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div style={{ whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>{String(data)}</div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div style={{ whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>{String(data)}</div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
 
@@ -614,8 +633,8 @@ export default function Consultation() {
               value={currentInput}
               onChange={(e) => setCurrentInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isFollowupPhase ? "Type the patient's response..." : "Describe the patient's condition..."}
-              disabled={ui.kind === "loading"}
+              placeholder={isCaseCompleted ? "Case is closed and cannot be modified." : isFollowupPhase ? "Type the patient's response..." : "Describe the patient's condition..."}
+              disabled={ui.kind === "loading" || isCaseCompleted}
               style={{ flex: 1 }}
             />
             <button 

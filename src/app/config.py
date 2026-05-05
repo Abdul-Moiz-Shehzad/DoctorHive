@@ -10,10 +10,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_API_KEY_second = os.getenv("GOOGLE_API_KEY_second")
 GOOGLE_API_KEY_third = os.getenv("GOOGLE_API_KEY_third")
+GOOGLE_API_KEY_fourth = os.getenv("GOOGLE_API_KEY_fourth")
 DESIRED_THRESHOLD = 0.8
 client_gpt = OpenAI(api_key=OPENAI_API_KEY) 
 genai.configure(api_key=GOOGLE_API_KEY)
-model_gemini = genai.GenerativeModel("gemini-2.0-flash")
 
 BASE_DIR = Path(__file__).resolve().parent
 

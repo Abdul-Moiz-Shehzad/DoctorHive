@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { fetchAllCases, deleteCase } from '../api';
+import { groupIntoRounds } from '../utils/rounds';
 import { Clock, Users, ChevronDown, ChevronUp, Trash2, Terminal, Play, Lock, MessageSquare } from 'lucide-react';
 
 const MarkdownText = ({ text }) => {
@@ -165,33 +166,22 @@ export default function History() {
 
               {isExpanded && (
                 <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
-                  {xaiLogs.length > 0 && (
-                    <div style={{ background: '#0f172a', border: '1px solid #1e293b', padding: '16px', borderRadius: '12px', color: '#38bdf8', marginBottom: '20px' }}>
-                      <div style={{ color: '#10b981', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600 }}>
-                        <Terminal size={14} /> Recovered AI Reasoning Logs
-                      </div>
-                      {xaiLogs.map((log, idx) => (
-                        <div key={idx} style={{ background: '#1e293b', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #38bdf8', marginBottom: '8px' }}>
-                          <div className="mono" style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '8px', textTransform: 'uppercase' }}>Phase: {log.stage}</div>
-                          {Object.entries(log.responses).filter(([_, v]) => v !== null).map(([agent, data]) => (
-                            <div key={agent} style={{ marginTop: '8px' }}>
-                              <div style={{ color: '#e2e8f0', fontWeight: 600, textTransform: 'capitalize', fontSize: '13px' }}>{agent}</div>
-                              <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '4px' }}>
-                                {data.diagnosis && <div><span style={{ color: '#94a3b8' }}>Diagnosis:</span> {data.diagnosis} {data.confidence ? `(${data.confidence}%)` : ''}</div>}
-                                {data.explanation && <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}><span style={{ color: '#94a3b8' }}>Rationale:</span> {data.explanation}</div>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
+                  {/* 1. Clinical Complaint */}
                   <div style={{ marginBottom: '20px' }}>
                     <div className="smallTitle" style={{ marginBottom: '8px' }}>Clinical Complaint</div>
-                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--text-primary)' }}>{c.user_message}</div>
+                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--text-primary)' }}>
+                      {(() => {
+                        let text = c.user_message || "";
+                        // Remove System Note (anything inside brackets starting with System Note)
+                        text = text.replace(/\[System Note:.*?\]/gi, '');
+                        // Remove Patient Complaint prefix
+                        text = text.replace(/Patient Complaint:/gi, '');
+                        return text.trim();
+                      })()}
+                    </div>
                   </div>
 
+                  {/* 2. GP Assessment */}
                   {c.snapshot?.gp_response && (
                     <div style={{ marginBottom: '20px' }}>
                       <div className="smallTitle" style={{ marginBottom: '8px' }}>GP Assessment</div>
@@ -201,17 +191,93 @@ export default function History() {
                     </div>
                   )}
 
-                  {c.answered_followups?.length > 0 && (
+                  {/* 3. GP Q&A */}
+                  {c.answered_followups?.filter(qa => !qa.isSpecialist).length > 0 && (
                     <div style={{ marginBottom: '20px' }}>
-                      <div className="smallTitle" style={{ marginBottom: '10px' }}>Patient Q&A</div>
+                      <div className="smallTitle" style={{ marginBottom: '10px' }}>GP Follow-up Q&A</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {c.answered_followups.map((qa, i) => (
+                        {c.answered_followups.filter(qa => !qa.isSpecialist).map((qa, i) => (
                           <div key={i} style={{ background: 'var(--bg-tertiary)', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
                             <div style={{ color: 'var(--accent-secondary)', marginBottom: '4px', fontWeight: 500, fontSize: '13px' }}>Q: {qa.question}</div>
                             <div style={{ color: 'var(--text-primary)', fontSize: '13px' }}>A: {qa.answer}</div>
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* 4. Specialist Rounds (XAI logs & QA) */}
+                  {xaiLogs.length > 0 && (
+                    <div style={{ marginBottom: '20px' }}>
+                      {groupIntoRounds(xaiLogs, c.answered_followups || []).map((round) => (
+                        <div key={round.roundNum} style={{ marginBottom: '24px' }}>
+                          <div className="smallTitle text-accent" style={{ marginBottom: '12px', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'capitalize' }}>
+                            <Terminal size={16} /> Specialist Round {round.roundNum}
+                          </div>
+
+                          {/* Render Logs for this round */}
+                          <div style={{ padding: '16px', background: 'var(--bg-tertiary)', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '16px' }}>
+                            {round.logs.map((log, idx) => {
+                              const stageLabel = log.stage === 'specialists_follow_up' ? 'improved diagnosis' : log.stage.replace(/_/g, ' ');
+                              return (
+                                <div key={idx} style={{ marginBottom: idx === round.logs.length - 1 ? '0' : '16px' }}>
+                                  <div style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>
+                                    Phase: {stageLabel}
+                                  </div>
+                                  {Object.entries(log.responses).map(([agent, data], agentIdx) => (
+                                    <div key={agent} style={{ marginTop: agentIdx === 0 ? '0' : '8px', padding: '12px', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                                      <div style={{ fontWeight: 600, textTransform: 'capitalize', fontSize: '13px', color: 'var(--accent-primary)', marginBottom: '8px' }}>{agent}</div>
+                                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                        {data === null ? (
+                                          <span style={{ fontStyle: 'italic', opacity: 0.7 }}>No response / Not involved</span>
+                                        ) : typeof data === 'object' ? (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            {data.confidence && (
+                                              <div><strong style={{ color: 'var(--success-text)' }}>Confidence:</strong> {data.confidence}%</div>
+                                            )}
+                                            {data.diagnosis && (
+                                              <div><strong style={{ color: 'var(--text-primary)' }}>Diagnosis:</strong> {data.diagnosis}</div>
+                                            )}
+                                            {data.explanation && (
+                                              <div><strong style={{ color: 'var(--text-primary)' }}>Rationale:</strong><div style={{ marginTop: '4px', paddingRight: '4px' }}><MarkdownText text={data.explanation} /></div></div>
+                                            )}
+                                            {data.follow_ups && Array.isArray(data.follow_ups) && data.follow_ups.length > 0 && (
+                                              <div><strong style={{ color: 'var(--accent-glow)' }}>Follow-ups requested:</strong>
+                                                <ul style={{ margin: '4px 0 0 0', paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                  {data.follow_ups.map((q, idx) => <li key={idx}>{q}</li>)}
+                                                </ul>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <div style={{ whiteSpace: 'pre-wrap' }}>{String(data)}</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Render QA for this round */}
+                          {round.qa.length > 0 && (
+                            <div style={{ marginBottom: '16px', paddingLeft: '12px', borderLeft: '2px solid var(--accent-secondary)' }}>
+                              <div style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>
+                                Specialist Follow-up Q&A
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {round.qa.map((qa, i) => (
+                                  <div key={i} style={{ background: 'var(--bg-tertiary)', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                    <div style={{ color: 'var(--accent-secondary)', marginBottom: '4px', fontWeight: 500, fontSize: '13px' }}>Q: {qa.question}</div>
+                                    <div style={{ color: 'var(--text-primary)', fontSize: '13px' }}>A: {qa.answer}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
 

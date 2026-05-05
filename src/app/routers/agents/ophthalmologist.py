@@ -5,7 +5,7 @@ import uvicorn
 from src.app.models import Specialized_Agents_Diagnosis_Response
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from src.utils.utilities import _parse_initial_round_output, parse_specialist_response
-from src.utils.utilities import get_llm
+from src.utils.utilities import get_llm, extract_content
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ explanation: Symptoms are nonspecific; could be refractive, migraine-related, ne
 """
     prompt=f"{system_prompt}\n\nPatient says: {user_message}"
     try:
-        raw_response = llm.invoke(prompt).content.strip()
+        raw_response = extract_content(llm.invoke(prompt).content)
         logger.info(f"LLM Raw response: {raw_response}")
     except Exception as e:
         logger.error(f"LLM error: {e}")
@@ -206,7 +206,7 @@ follow_ups:
     messages.append(HumanMessage(content=debate_prompt))
 
     response = llm.invoke(messages)
-    text = response.content.strip()
+    text = extract_content(response.content)
 
     parsed = parse_specialist_response(text)
     confidence = parsed["confidence"]
@@ -299,7 +299,7 @@ explanation: <explanation>
 
     try:
         response = llm.invoke(messages)
-        text = response.content.strip()
+        text = extract_content(response.content)
         parsed = parse_specialist_response(text)
         return Specialized_Agents_Diagnosis_Response(
             confidence=parsed["confidence"],

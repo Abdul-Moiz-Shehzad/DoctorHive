@@ -348,11 +348,13 @@ html[data-theme="light"] .chat-bubble.user {
 /* Login / Register Page                                                       */
 /* ─────────────────────────────────────────────────────────────────────────── */
 .login-page {
-  display: flex;
+  display: grid;
+  grid-template-columns: 520px 1fr;
   min-height: 100vh;
   background: var(--bg-primary);
   position: relative;
   font-family: var(--font-main);
+  overflow-x: hidden;
 }
 
 .login-page::before {
@@ -395,7 +397,6 @@ html[data-theme="light"] .chat-bubble.user {
 }
 
 .login-panel-left {
-  flex: 0 0 520px;
   background: linear-gradient(165deg, rgba(18, 18, 24, 0.6) 0%, rgba(78, 79, 235, 0.05) 100%);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(40px);
@@ -403,9 +404,11 @@ html[data-theme="light"] .chat-bubble.user {
   padding: 60px 50px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 40px;
   position: relative;
   z-index: 1;
+  height: 100%;
 }
 
 html[data-theme="light"] .login-panel-left {
@@ -419,7 +422,7 @@ html[data-theme="light"] .login-panel-left {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 60px;
+  margin-bottom: 20px;
   font-size: 26px;
   font-weight: 800;
   color: var(--text-primary);
@@ -764,6 +767,7 @@ html[data-theme="light"] .login-field input:focus {
 }
 
 @media (max-width: 900px) { 
+  .login-page { grid-template-columns: 1fr; }
   .login-panel-left { display: none; } 
   .login-form-card { padding: 32px; border-radius: 24px; }
 }
@@ -780,6 +784,7 @@ html[data-theme="light"] .login-field input:focus {
   font-family: var(--font-main);
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 }
 
 .landing-page::before {
