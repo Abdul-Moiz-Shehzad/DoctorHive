@@ -30,7 +30,7 @@ export default function Consultation() {
   const preferredModel = user?.preferred_model || "gemini";
   const [currentInput, setCurrentInput] = useState("");
   const [files, setFiles] = useState([]);
-  
+
   const [submittedMessage, setSubmittedMessage] = useState("");
   const [submittedFiles, setSubmittedFiles] = useState([]);
 
@@ -67,7 +67,7 @@ export default function Consultation() {
     if (resumeId && !caseId && user) {
       setCaseId(resumeId);
       setUi({ kind: "loading", label: "Resuming consultation history..." });
-      
+
       // Attempt to load snapshot from DB first
       fetchChatHistory(user.user_id)
         .then(allHistory => {
@@ -77,25 +77,25 @@ export default function Consultation() {
             // Migrate answered_followups
             let loadedFollowups = s.answered_followups ?? prev?.answered_followups ?? [];
             loadedFollowups = loadedFollowups.map((qa, i) => {
-               if (qa.isSpecialist === undefined) {
-                   return { ...qa, isSpecialist: i >= 4 }; // Best-effort migration for old chats
-               }
-               return qa;
+              if (qa.isSpecialist === undefined) {
+                return { ...qa, isSpecialist: i >= 4 }; // Best-effort migration for old chats
+              }
+              return qa;
             });
 
             // Migrate xaiLogs
             let loadedXai = s.xai_logs;
             if (!loadedXai || loadedXai.length === 0) {
-               try {
-                   loadedXai = JSON.parse(localStorage.getItem(`xai_${resumeId}`) || '[]');
-               } catch(e) {}
+              try {
+                loadedXai = JSON.parse(localStorage.getItem(`xai_${resumeId}`) || '[]');
+              } catch (e) { }
             }
             loadedXai = (loadedXai || []).map((log, idx) => {
-                // Fix old incorrect future stages
-                if (log.stage === 'debate' && idx === 0) return { ...log, stage: 'initial_round' };
-                if (log.stage === 'specialists_follow_up' && idx === 1) return { ...log, stage: 'debate' };
-                if (log.stage === 'choice' || log.stage === 'transfer_control') return { ...log, stage: 'improved_diagnosis' };
-                return log;
+              // Fix old incorrect future stages
+              if (log.stage === 'debate' && idx === 0) return { ...log, stage: 'initial_round' };
+              if (log.stage === 'specialists_follow_up' && idx === 1) return { ...log, stage: 'debate' };
+              if (log.stage === 'choice' || log.stage === 'transfer_control') return { ...log, stage: 'improved_diagnosis' };
+              return log;
             });
 
             setOrchestrator(prev => ({
@@ -190,7 +190,7 @@ export default function Consultation() {
           if (res.answered_followups) {
             const isSpec = stage === 'specialists_follow_up' || stage === 'improved_diagnosis' || prev?.stage === 'specialists_follow_up';
             const incoming = res.answered_followups.map(qa => ({ ...qa, isSpecialist: isSpec, round: prev?.debate_round_count || 1 }));
-            
+
             const existing = [...mergedFollowups];
             for (const newQa of incoming) {
               if (!existing.some(oldQa => oldQa.question === newQa.question)) {
@@ -241,7 +241,7 @@ export default function Consultation() {
           } else if (res.data && res.data.consensus) {
             setSpecialistResult(res.data);
           } else if (res.message && typeof res.message === "string" && res.message.startsWith("{")) {
-            try {setSpecialistResult(JSON.parse(res.message));} catch {/* ignore */}
+            try { setSpecialistResult(JSON.parse(res.message)); } catch {/* ignore */ }
           }
           setUi({ kind: "ready" });
           break;
@@ -288,7 +288,7 @@ export default function Consultation() {
               profile.allergies?.length ? `Allergies: ${profile.allergies.join(', ')}` : '',
               profile.medications?.length ? `Medications: ${profile.medications.join(', ')}` : '',
             ].filter(Boolean).join('; ');
-            
+
             if (historyStr) {
               finalMessage = `[System Note: Patient Medical History (may be outdated, please verify if relevant): ${historyStr}]\n\nPatient Complaint: ${rawInput}`;
             }
@@ -384,7 +384,7 @@ export default function Consultation() {
       if (qa.answer === "skip") return;
 
       const isSpecialistPhase = qa.isSpecialist === true;
-      
+
       if (isSpecialistPhase && !insertedSpecialistDivider && Array.isArray(specialists) && specialists.length > 0) {
         insertSpecialistDivider();
       }
@@ -411,7 +411,7 @@ export default function Consultation() {
         const nextQa = arr[i + 1];
         const isBlockEnd = !nextQa || nextQa.round !== qa.round;
         const isPhaseOver = !['specialists_follow_up', 'debate', 'initial_round'].includes(orchestrator?.stage);
-        
+
         if (isBlockEnd && (nextQa || isPhaseOver)) {
           chatNodes.push(
             <div key={`spec-done-${qa.round}-${i}`} className="chat-bubble-wrapper ai" style={{ justifyContent: 'center', margin: '8px 0' }}>
@@ -465,7 +465,7 @@ export default function Consultation() {
           <div className="chat-bubble-title" style={{ color: 'var(--success-text)', fontSize: '1.2rem' }}>
             ✓ Final Diagnostic Assessment
           </div>
-          
+
           {specialistResult.role === "recommendation" && (
             <div className="mt-4">
               <h4 style={{ margin: '0 0 8px 0', color: 'var(--text-primary)' }}>Recommendation from: {specialistResult.agent_name}</h4>
@@ -514,7 +514,7 @@ export default function Consultation() {
           )}
 
           {typeof specialistResult === 'string' && (
-             <div className="mt-4"><MarkdownText text={String(specialistResult)} /></div>
+            <div className="mt-4"><MarkdownText text={String(specialistResult)} /></div>
           )}
         </div>
       </div>
@@ -523,90 +523,83 @@ export default function Consultation() {
 
   return (
     <div className="consultation-page chat-interface">
-        {xaiEnabled && (
-          <div className="xai-drawer" style={{ 
-            position: 'fixed', right: 0, top: 0, bottom: 0, width: '400px', 
-            background: 'var(--bg-card)', borderLeft: '1px solid var(--border-color)',
-            boxShadow: '-4px 0 20px rgba(0,0,0,0.1)', zIndex: 100,
-            display: 'flex', flexDirection: 'column'
-          }}>
-            <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px' }}><Terminal size={18} /> Explainable AI (XAI)</h3>
-              <button onClick={() => setXaiEnabled(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px' }}>✕</button>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              
-              <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Bot size={14}/> Orchestrator State</h4>
-                <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span>Current Phase:</span> <strong>{orchestrator?.stage || 'Init'}</strong></div>
-                <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between' }}><span>Debate Rounds:</span> <strong>{orchestrator?.debate_round_count || 0} / 2</strong></div>
-              </div>
-
-              {orchestrator?.specialists_required && orchestrator.specialists_required.length > 0 && (
-                <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                  <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><FileSearch size={14}/> Agents Invoked</h4>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {orchestrator.specialists_required.map(s => <div key={s} className="chip"><span className="mono">{s}</span></div>)}
-                  </div>
-                </div>
-              )}
-
-              {groupIntoRounds(xaiLogs).map((round) => (
-                <div key={round.roundNum} style={{ marginBottom: '16px' }}>
-                  <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>Specialist Round {round.roundNum}</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {round.logs.map((log, i) => {
-                      const stageLabel = log.stage === 'specialists_follow_up' ? 'improved diagnosis' : log.stage.replace(/_/g, ' ');
-                      return (
-                        <div key={i} style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                          <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', textTransform: 'capitalize' }}><Stethoscope size={14}/> Stage: {stageLabel}</h4>
-                          {Object.entries(log.responses).map(([agent, data]) => (
-                            <div key={agent} style={{ marginTop: '8px', padding: '8px', background: 'var(--bg-primary)', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
-                              <div style={{ fontWeight: 600, textTransform: 'capitalize', fontSize: '12px', color: 'var(--accent-primary)', marginBottom: '4px' }}>{agent}</div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                {data === null ? (
-                                  <span style={{ fontStyle: 'italic', opacity: 0.7 }}>No response / Not involved</span>
-                                ) : typeof data === 'object' ? (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    {data.confidence && (
-                                      <div><strong style={{ color: 'var(--success-text)' }}>Confidence:</strong> {data.confidence}%</div>
-                                    )}
-                                    {data.diagnosis && (
-                                      <div><strong style={{ color: 'var(--text-primary)' }}>Diagnosis:</strong> {data.diagnosis}</div>
-                                    )}
-                                    {data.explanation && (
-                                      <div><strong style={{ color: 'var(--text-primary)' }}>Rationale:</strong><div style={{ marginTop: '2px', maxHeight: '100px', overflowY: 'auto', paddingRight: '4px' }}>{data.explanation}</div></div>
-                                    )}
-                                    {data.follow_ups && Array.isArray(data.follow_ups) && (
-                                      <div><strong style={{ color: 'var(--accent-glow)' }}>Follow-ups requested:</strong>
-                                        <ul style={{ margin: '4px 0 0 0', paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                          {data.follow_ups.map((q, idx) => <li key={idx}>{q}</li>)}
-                                        </ul>
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <div style={{ whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>{String(data)}</div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-
-              <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                 <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Terminal size={14}/> Raw Telemetry</h4>
-                 <pre style={{ fontSize: '11px', whiteSpace: 'pre-wrap', color: 'var(--text-muted)' }}>
-                    {JSON.stringify(orchestrator, null, 2)}
-                 </pre>
-              </div>
-            </div>
+      {xaiEnabled && (
+        <div className="xai-drawer" style={{
+          position: 'fixed', right: 0, top: 0, bottom: 0, width: '400px',
+          background: 'var(--bg-card)', borderLeft: '1px solid var(--border-color)',
+          boxShadow: '-4px 0 20px rgba(0,0,0,0.1)', zIndex: 100,
+          display: 'flex', flexDirection: 'column'
+        }}>
+          <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px' }}><Terminal size={18} /> Explainable AI (XAI)</h3>
+            <button onClick={() => setXaiEnabled(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '18px' }}>✕</button>
           </div>
-        )}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+            <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><Bot size={14} /> Orchestrator State</h4>
+              <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span>Current Phase:</span> <strong>{orchestrator?.stage || 'Init'}</strong></div>
+              <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between' }}><span>Debate Rounds:</span> <strong>{orchestrator?.debate_round_count || 0} / 2</strong></div>
+            </div>
+
+            {orchestrator?.specialists_required && orchestrator.specialists_required.length > 0 && (
+              <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}><FileSearch size={14} /> Agents Invoked</h4>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {orchestrator.specialists_required.map(s => <div key={s} className="chip"><span className="mono">{s}</span></div>)}
+                </div>
+              </div>
+            )}
+
+            {groupIntoRounds(xaiLogs).map((round) => (
+              <div key={round.roundNum} style={{ marginBottom: '16px' }}>
+                <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>Specialist Round {round.roundNum}</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {round.logs.map((log, i) => {
+                    const stageLabel = log.stage === 'specialists_follow_up' ? 'improved diagnosis' : log.stage.replace(/_/g, ' ');
+                    return (
+                      <div key={i} style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <h4 style={{ margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', textTransform: 'capitalize' }}><Stethoscope size={14} /> Stage: {stageLabel}</h4>
+                        {Object.entries(log.responses).map(([agent, data]) => (
+                          <div key={agent} style={{ marginTop: '8px', padding: '8px', background: 'var(--bg-primary)', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                            <div style={{ fontWeight: 600, textTransform: 'capitalize', fontSize: '12px', color: 'var(--accent-primary)', marginBottom: '4px' }}>{agent}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                              {data === null ? (
+                                <span style={{ fontStyle: 'italic', opacity: 0.7 }}>No response / Not involved</span>
+                              ) : typeof data === 'object' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  {data.confidence && (
+                                    <div><strong style={{ color: 'var(--success-text)' }}>Confidence:</strong> {data.confidence}%</div>
+                                  )}
+                                  {data.diagnosis && (
+                                    <div><strong style={{ color: 'var(--text-primary)' }}>Diagnosis:</strong> {data.diagnosis}</div>
+                                  )}
+                                  {data.explanation && (
+                                    <div><strong style={{ color: 'var(--text-primary)' }}>Rationale:</strong><div style={{ marginTop: '2px', maxHeight: '100px', overflowY: 'auto', paddingRight: '4px' }}>{data.explanation}</div></div>
+                                  )}
+                                  {data.follow_ups && Array.isArray(data.follow_ups) && (
+                                    <div><strong style={{ color: 'var(--accent-glow)' }}>Follow-ups requested:</strong>
+                                      <ul style={{ margin: '4px 0 0 0', paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {data.follow_ups.map((q, idx) => <li key={idx}>{q}</li>)}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div style={{ whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>{String(data)}</div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <header className="page-header" style={{ marginBottom: '20px' }}>
         <div>
           <h1 className="title">Active Consultation</h1>
@@ -628,7 +621,7 @@ export default function Consultation() {
             <p>Describe the patient's chief complaint, onset, and relevant medical history to begin.</p>
           </div>
         )}
-        
+
         {chatNodes}
 
         {ui.kind === "loading" && (
@@ -639,7 +632,7 @@ export default function Consultation() {
             </div>
           </div>
         )}
-        
+
         <div ref={chatEndRef} />
       </main>
 
@@ -655,16 +648,16 @@ export default function Consultation() {
               disabled={ui.kind === "loading" || isCaseCompleted}
               style={{ flex: 1 }}
             />
-            <button 
-              className="chat-send-btn" 
-              onClick={handleSend} 
+            <button
+              className="chat-send-btn"
+              onClick={handleSend}
               disabled={!canSubmit}
               style={{ background: canSubmit ? 'var(--accent-primary)' : 'var(--bg-tertiary)', color: canSubmit ? '#fff' : 'var(--text-muted)' }}
             >
               <Send size={18} style={{ marginLeft: '2px' }} />
             </button>
           </div>
-          
+
           <div className="chat-controls">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               {!isFollowupPhase && (
@@ -684,7 +677,7 @@ export default function Consultation() {
                 </label>
               )}
             </div>
-            
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <button
                 onClick={() => setXaiEnabled(!xaiEnabled)}

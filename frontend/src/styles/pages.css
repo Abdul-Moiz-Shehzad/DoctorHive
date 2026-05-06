@@ -1610,15 +1610,35 @@ html[data-theme="light"] .landing-feature-card:hover { background: #ffffff; }
   -webkit-backdrop-filter: blur(25px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   position: relative;
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s, background 0.4s;
+  overflow: hidden;
 }
 html[data-theme="light"] .landing-step-card {
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid rgba(0,0,0,0.06);
 }
 
+.landing-step-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: radial-gradient(circle at top right, rgba(78,79,235,0.1), transparent 50%);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
 .landing-step-card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-10px) scale(1.05);
+  border-color: rgba(78, 79, 235, 0.3);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme="light"] .landing-step-card:hover { background: #ffffff; }
+
+.landing-step-card:hover::before {
+  opacity: 1;
 }
 
 .landing-step-number {

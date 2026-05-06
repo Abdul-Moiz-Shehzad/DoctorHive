@@ -288,61 +288,71 @@ def get_llm(backend: str = "gemini"):
         return ChatOpenAI(model="gpt-4o", temperature=1, api_key=OPENAI_API_KEY)
     
     elif backend == "gemini":
-        logger.info("Agent used Gemini with fallback rotation (Gemini 3 First)")
+        logger.info("Agent used Gemini with fallback rotation (G3 -> G2.5 -> G3.1 Lite -> G2.5 Lite)")
         
-        # --- Gemini 2.5 Instances ---
-        first_g25 = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=1,
-            api_key=GOOGLE_API_KEY
+        # --- 1. Gemini 3 Instances (First Priority) ---
+        g3_1 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview", temperature=1, api_key=GOOGLE_API_KEY, max_retries=1
         )
-        second_g25 = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=1,
-            api_key=GOOGLE_API_KEY_second
+        g3_2 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview", temperature=1, api_key=GOOGLE_API_KEY_second, max_retries=1
         )
-        third_g25 = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=1,
-            api_key=GOOGLE_API_KEY_third
+        g3_3 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview", temperature=1, api_key=GOOGLE_API_KEY_third, max_retries=1
         )
-        fourth_g25 = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=1,
-            api_key=GOOGLE_API_KEY_fourth
+        g3_4 = ChatGoogleGenerativeAI(
+            model="gemini-3-flash-preview", temperature=1, api_key=GOOGLE_API_KEY_fourth, max_retries=1
         )
 
-        # --- Gemini 3 Instances ---
-        first_g3 = ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
-            temperature=1,
-            api_key=GOOGLE_API_KEY
+        # --- 2. Gemini 2.5 Instances (Second Priority) ---
+        g25_1 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY, max_retries=1
         )
-        second_g3 = ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
-            temperature=1,
-            api_key=GOOGLE_API_KEY_second
+        g25_2 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY_second, max_retries=1
         )
-        third_g3 = ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
-            temperature=1,
-            api_key=GOOGLE_API_KEY_third
+        g25_3 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY_third, max_retries=1
         )
-        fourth_g3 = ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
-            temperature=1,
-            api_key=GOOGLE_API_KEY_fourth
+        g25_4 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash", temperature=1, api_key=GOOGLE_API_KEY_fourth, max_retries=1
         )
 
-        # Chain: g3_1 -> g3_2 -> g3_3 -> g3_4 -> g25_1 -> g25_2 -> g25_3 -> g25_4
-        llm_with_fallbacks = first_g3.with_fallbacks([
-            second_g3,
-            third_g3,
-            fourth_g3,
-            first_g25,
-            second_g25,
-            third_g25,
-            fourth_g25
+        # --- 3. Gemini 3.1 Flash Lite Instances (Third Priority) ---
+        g3lite_1 = ChatGoogleGenerativeAI(
+            model="gemini-3.1-flash-lite-preview", temperature=1, api_key=GOOGLE_API_KEY, max_retries=1
+        )
+        g3lite_2 = ChatGoogleGenerativeAI(
+            model="gemini-3.1-flash-lite-preview", temperature=1, api_key=GOOGLE_API_KEY_second, max_retries=1
+        )
+        g3lite_3 = ChatGoogleGenerativeAI(
+            model="gemini-3.1-flash-lite-preview", temperature=1, api_key=GOOGLE_API_KEY_third, max_retries=1
+        )
+        g3lite_4 = ChatGoogleGenerativeAI(
+            model="gemini-3.1-flash-lite-preview", temperature=1, api_key=GOOGLE_API_KEY_fourth, max_retries=1
+        )
+
+        # --- 4. Gemini 2.5 Flash Lite Instances (Final Safety Net) ---
+        g25lite_1 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash-lite", temperature=1, api_key=GOOGLE_API_KEY, max_retries=1
+        )
+        g25lite_2 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash-lite", temperature=1, api_key=GOOGLE_API_KEY_second, max_retries=1
+        )
+        g25lite_3 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash-lite", temperature=1, api_key=GOOGLE_API_KEY_third, max_retries=1
+        )
+        g25lite_4 = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash-lite", temperature=1, api_key=GOOGLE_API_KEY_fourth, max_retries=1
+        )
+
+        # --- Chain Initialization ---
+        # The cascade sequence: G3 -> G2.5 -> G3.1 Lite -> G2.5 Lite
+        llm_with_fallbacks = g3_1.with_fallbacks([
+            g3_2, g3_3, g3_4,
+            g25_1, g25_2, g25_3, g25_4,
+            g3lite_1, g3lite_2, g3lite_3, g3lite_4,
+            g25lite_1, g25lite_2, g25lite_3, g25lite_4
         ])
 
         return llm_with_fallbacks
