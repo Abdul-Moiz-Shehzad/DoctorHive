@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquareText, History, Settings, ActivitySquare, Moon, Sun, LogOut, ChevronRight, Clock } from 'lucide-react';
+import { NavLink, useNavigate, Link } from 'react-router-dom';
+import { LayoutDashboard, MessageSquareText, History, Settings, Moon, Sun, LogOut, ChevronRight, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { fetchAllCases } from '../api';
 
@@ -27,10 +27,10 @@ export default function Sidebar({ theme, toggleTheme }) {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <ActivitySquare className="logo-icon" size={28} />
+      <Link to="/" className="sidebar-header" style={{ textDecoration: 'none', cursor: 'pointer' }}>
+        <img src="/doctorhive logo.png" alt="DoctorHive Logo" className="sidebar-logo-img" />
         <h2>DoctorHive</h2>
-      </div>
+      </Link>
 
       <nav className="sidebar-nav">
         <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} end>

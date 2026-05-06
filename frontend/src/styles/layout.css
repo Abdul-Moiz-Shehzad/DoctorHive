@@ -45,7 +45,13 @@
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.3s ease;
 }
+
+.sidebar-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 
 .sidebar-header h2 {
   font-size: 18px;
@@ -53,9 +59,11 @@
   color: var(--text-primary);
 }
 
-.logo-icon {
-  color: var(--accent-primary);
-  filter: drop-shadow(var(--shadow-glow));
+.sidebar-logo-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 8px var(--accent-glow));
 }
 
 .sidebar-nav {

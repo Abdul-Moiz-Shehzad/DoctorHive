@@ -214,10 +214,10 @@ export default function Consultation() {
           };
         });
 
-        if (res.data?.responses) {
+        if (res.data?.responses || res.data?.results) {
           setXaiLogs((prev) => {
             const logStage = res.stage_before || stage;
-            const updated = [...prev, { stage: logStage, responses: res.data.responses }];
+            const updated = [...prev, { stage: logStage, responses: res.data.responses || res.data.results }];
             if (newCaseId) {
               localStorage.setItem(`xai_${newCaseId}`, JSON.stringify(updated));
             }
@@ -379,7 +379,8 @@ export default function Consultation() {
   };
 
   if (orchestrator?.answered_followups) {
-    orchestrator.answered_followups.forEach((qa, i) => {
+    const arr = orchestrator.answered_followups;
+    arr.forEach((qa, i) => {
       if (qa.answer === "skip") return;
 
       const isSpecialistPhase = qa.isSpecialist === true;
@@ -405,16 +406,33 @@ export default function Consultation() {
           </div>
         </div>
       );
+
+      if (isSpecialistPhase) {
+        const nextQa = arr[i + 1];
+        const isBlockEnd = !nextQa || nextQa.round !== qa.round;
+        const isPhaseOver = !['specialists_follow_up', 'debate', 'initial_round'].includes(orchestrator?.stage);
+        
+        if (isBlockEnd && (nextQa || isPhaseOver)) {
+          chatNodes.push(
+            <div key={`spec-done-${qa.round}-${i}`} className="chat-bubble-wrapper ai" style={{ justifyContent: 'center', margin: '8px 0' }}>
+              <div className="chat-bubble ai" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.85em', padding: '8px 16px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Terminal size={14} />
+                All Specialists follow-up questions answered.
+              </div>
+            </div>
+          );
+        }
+      }
     });
   }
 
-  const isGPPhaseOver = orchestrator?.stage && !['initial_round', 'general_follow_up'].includes(orchestrator.stage);
+  const isGPPhaseOver = orchestrator?.stage && !['init', 'general_follow_up'].includes(orchestrator.stage);
 
   if (!insertedSpecialistDivider && Array.isArray(specialists) && specialists.length > 0 && isGPPhaseOver) {
     insertSpecialistDivider();
   }
 
-  if (orchestrator?.message && orchestrator.message !== "Answer recorded." && !orchestrator.message.includes("Patient answer required") && !orchestrator.message.includes("Forwarding to specialists") && !specialistResult) {
+  if (orchestrator?.message && orchestrator.message !== "Answer recorded." && !orchestrator.message.includes("Patient answer required") && !orchestrator.message.includes("Forwarding to specialists") && !orchestrator.message.includes("follow-up questions answered") && !specialistResult) {
     chatNodes.push(
       <div key="sys-msg" className="chat-bubble-wrapper ai" style={{ justifyContent: 'center', margin: '8px 0' }}>
         <div className="chat-bubble ai" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.85em', padding: '8px 16px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
